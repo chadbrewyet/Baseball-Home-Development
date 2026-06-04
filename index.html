@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#102a43">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <title>Clubhouse | Baseball Development</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#" data-view-link="dashboard">
+      <span class="brand-mark">C</span>
+      <span><strong>CLUBHOUSE</strong><small>Development Lab</small></span>
+    </a>
+    <nav>
+      <button class="nav-link active" data-view-link="dashboard"><span>01</span> Dashboard</button>
+      <button class="nav-link" data-view-link="plan"><span>02</span> Training Plan</button>
+      <button class="nav-link" data-view-link="log"><span>03</span> Session Log</button>
+      <button class="nav-link" data-view-link="pitch"><span>04</span> Pitch Count</button>
+      <button class="nav-link" data-view-link="tests"><span>05</span> Monthly Tests</button>
+      <button class="nav-link" data-view-link="library"><span>06</span> Drill Library</button>
+      <button class="nav-link" data-view-link="equipment"><span>07</span> Equipment Shed</button>
+      <button class="nav-link admin-nav" data-view-link="schedule"><span>08</span> Schedule</button>
+      <button class="nav-link admin-nav" data-view-link="admin"><span>09</span> Manage</button>
+      <button class="nav-link" data-view-link="alerts"><span>10</span> Alerts <b id="alert-badge"></b></button>
+      <button class="nav-link" data-view-link="progress"><span>11</span> Progress</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="season-meter">
+        <div><span>Summer block</span><strong id="season-percent">0%</strong></div>
+        <div class="meter"><i id="season-meter-bar"></i></div>
+        <small id="season-detail">0 of 0 sessions complete</small>
+      </div>
+      <button class="text-button" id="reset-data">Reset demo data</button>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <button class="menu-button" id="menu-button" aria-label="Open menu">Menu</button>
+      <div>
+        <p class="eyebrow" id="page-eyebrow">Thursday, June 4</p>
+        <h1 id="page-title">Dashboard</h1>
+      </div>
+      <select id="context-player" aria-label="Selected player"></select>
+      <button class="profile-button" id="profile-button"><span id="profile-name">Profile</span><small id="profile-roles"></small></button>
+      <button class="primary-button" id="quick-log">+ Log Session</button>
+    </header>
+
+    <section class="view active" id="dashboard-view">
+      <div class="hero-grid">
+        <article class="today-card" id="today-card"></article>
+        <article class="readiness-card" id="readiness-card">
+          <div class="section-heading">
+            <div><p class="eyebrow">Daily check-in</p><h2>Readiness</h2></div>
+            <strong id="readiness-score">8.0</strong>
+          </div>
+          <div class="feeling-group"><strong>Energy</strong><div class="feeling-options" id="energy-options"></div></div>
+          <div class="feeling-group"><strong>Arm feel</strong><div class="feeling-options" id="arm-options"></div></div>
+          <div class="feeling-group"><strong>Body feel</strong><div class="feeling-options" id="soreness-options"></div></div>
+          <label id="readiness-detail-wrap" hidden>Tell an adult more<textarea id="readiness-detail" rows="2" placeholder="Where does it hurt or feel unusual?"></textarea></label>
+          <button class="secondary-button wide" id="save-readiness">Save check-in</button>
+        </article>
+      </div>
+      <div id="workload-alert"></div>
+      <div class="stat-grid" id="stat-grid"></div>
+      <div class="content-grid">
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Seven-day view</p><h2>This week</h2></div><button class="text-button" data-view-link="plan">Full plan</button></div>
+          <div class="week-strip" id="week-strip"></div>
+        </article>
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Workload mix</p><h2>Training balance</h2></div></div>
+          <div class="balance-list" id="balance-list"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="plan-view">
+      <div class="view-actions">
+        <div class="filter-row" id="phase-filters">
+          <button class="filter active" data-phase="In Season">In Season</button>
+          <button class="filter" data-phase="Off Season">Off Season</button>
+        </div>
+        <button class="primary-button" id="add-workout">+ Build Workout</button>
+      </div>
+      <div class="plan-list" id="plan-list"></div>
+    </section>
+
+    <section class="view" id="pitch-view">
+      <div class="log-layout">
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Age 11-12 workload</p><h2>Log pitch count</h2></div></div>
+          <form id="pitch-form" class="form-stack">
+            <div class="form-row"><label>Date<input id="pitch-date" type="date" required></label><label>Setting<select id="pitch-setting"><option>Game</option><option>Practice</option><option>Flat-ground</option></select></label></div>
+            <div class="form-row"><label>Pitches<input id="pitch-count" type="number" min="0" max="120" required></label><label>Innings<input id="pitch-innings" type="number" min="0" step=".1"></label></div>
+            <label>Arm soreness after throwing <output id="pitch-soreness-output">0</output><input id="pitch-soreness" type="range" min="0" max="10" value="0"></label>
+            <label>Opponent / notes<input id="pitch-notes" placeholder="Optional context"></label>
+            <button class="primary-button" type="submit">Save Pitch Count</button>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Automatic guidance</p><h2>Throwing availability</h2></div></div>
+          <div id="pitch-status"></div>
+          <div class="rest-rules">
+            <div><strong>1-20</strong><span>0 days rest</span></div><div><strong>21-35</strong><span>1 day rest</span></div><div><strong>36-50</strong><span>2 days rest</span></div><div><strong>51-65</strong><span>3 days rest</span></div><div><strong>66+</strong><span>4 days rest</span></div>
+          </div>
+          <div class="history-list" id="pitch-history"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="tests-view">
+      <div class="log-layout">
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Retest every 4-6 weeks</p><h2>Record assessment</h2></div></div>
+          <form id="test-form" class="form-stack">
+            <label>Test date<input id="test-date" type="date" required></label>
+            <div class="form-row"><label>10-yard sprint (sec)<input id="test-sprint" type="number" min="0" step=".01"></label><label>Broad jump (in)<input id="test-jump" type="number" min="0" step=".1"></label></div>
+            <div class="form-row"><label>Clean push-ups<input id="test-pushups" type="number" min="0"></label><label>Active hang (sec)<input id="test-hang" type="number" min="0"></label></div>
+            <div class="form-row"><label>Command strikes / 20<input id="test-command" type="number" min="0" max="20"></label><label>Quality contacts / 30<input id="test-contact" type="number" min="0" max="30"></label></div>
+            <label>Notes<textarea id="test-notes" rows="3"></textarea></label>
+            <button class="primary-button" type="submit">Save Assessment</button>
+          </form>
+        </article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Athlete development</p><h2>Assessment history</h2></div></div><div id="test-history" class="test-history"></div></article>
+      </div>
+    </section>
+
+    <section class="view" id="library-view">
+      <div class="view-actions">
+        <div><p class="eyebrow">One cue per drill</p><h2 class="view-heading">Drill Library</h2></div>
+        <div class="filter-row" id="library-filters"></div>
+      </div>
+      <div class="library-grid" id="library-grid"></div>
+    </section>
+
+    <section class="view" id="equipment-view">
+      <div class="log-layout">
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Available training tools</p><h2>Equipment Shed</h2></div></div>
+          <form id="equipment-form" class="form-row">
+            <label>Equipment name<input id="equipment-name" required placeholder="Example: 6 lb medicine ball"></label>
+            <button class="primary-button equipment-add" type="submit">Add Equipment</button>
+          </form>
+          <div class="equipment-grid" id="equipment-grid"></div>
+        </article>
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Planning support</p><h2>Missing Equipment</h2></div></div>
+          <p class="panel-copy">Drills remain visible even when equipment is unavailable. The variation builder flags conflicts before a session begins.</p>
+          <div class="history-list" id="missing-equipment-list"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="log-view">
+      <div class="log-layout">
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Capture the work</p><h2>Log a session</h2></div></div>
+          <form id="log-form" class="form-stack">
+            <label>Workout<select id="log-workout" required></select></label>
+            <div id="log-drill-list" class="session-drill-list"></div>
+            <div class="form-row">
+              <label>Date<input id="log-date" type="date" required></label>
+              <label>Duration (min)<input id="log-duration" type="number" min="1" value="60" required></label>
+            </div>
+            <label>Effort / RPE <output id="rpe-output">7</output><input id="log-rpe" type="range" min="1" max="10" value="7"></label>
+            <label>Result or key metric<input id="log-metric" type="text" placeholder="Example: 18/25 hard contact, 78 mph"></label>
+            <label>Session notes<textarea id="log-notes" rows="4" placeholder="What clicked? What needs attention next time?"></textarea></label>
+            <button class="primary-button" type="submit">Complete Session</button>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Recent work</p><h2>Session history</h2></div></div>
+          <div class="history-list" id="history-list"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="progress-view">
+      <div class="stat-grid" id="progress-stats"></div>
+      <div class="progress-grid">
+        <article class="panel chart-panel">
+          <div class="section-heading"><div><p class="eyebrow">Last eight sessions</p><h2>Effort trend</h2></div></div>
+          <div class="bar-chart" id="effort-chart"></div>
+        </article>
+        <article class="panel">
+          <div class="section-heading"><div><p class="eyebrow">Development focus</p><h2>Category volume</h2></div></div>
+          <div class="category-progress" id="category-progress"></div>
+        </article>
+      </div>
+      <article class="panel">
+        <div class="section-heading"><div><p class="eyebrow">Coach's notebook</p><h2>Recent takeaways</h2></div></div>
+        <div class="takeaway-grid" id="takeaway-grid"></div>
+      </article>
+    </section>
+
+    <section class="view" id="schedule-view">
+      <div class="view-actions"><div><p class="eyebrow">Team baseline + player overrides</p><h2 class="view-heading">Schedule</h2></div><button class="primary-button" id="add-event">+ Add Event</button></div>
+      <div id="schedule-conflicts"></div>
+      <div class="agenda-list" id="agenda-list"></div>
+    </section>
+
+    <section class="view" id="admin-view">
+      <div class="admin-grid">
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Local access</p><h2>Profiles</h2></div><button class="text-button" id="add-profile">+ Profile</button></div><div id="profile-list"></div></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Players and relationships</p><h2>Players</h2></div><button class="text-button" id="add-player">+ Player</button></div><div id="player-list"></div></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Roster and equipment</p><h2>Teams</h2></div><button class="text-button" id="add-team">+ Team</button></div><div id="team-list"></div></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Owner controls</p><h2>Assignments</h2></div></div><form id="assignment-form" class="form-stack"><label>User<select id="assignment-user"></select></label><label>Team<select id="assignment-team"></select></label><label class="check-label"><input id="assignment-coach" type="checkbox"><span><strong>Coach</strong><small>Can manage rostered player plans</small></span></label><label class="check-label"><input id="assignment-scheduler" type="checkbox"><span><strong>Scheduler</strong><small>Can manage team calendar events</small></span></label><button class="secondary-button">Save team role</button></form></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Device features</p><h2>App Settings</h2></div></div><button class="secondary-button wide" id="enable-notifications">Enable device notifications</button><button class="secondary-button wide" id="install-app">Install app</button><button class="text-button wide" id="sign-out">Sign out</button></article>
+      </div>
+    </section>
+
+    <section class="view" id="alerts-view">
+      <div class="section-heading"><div><p class="eyebrow">Persistent inbox</p><h2>Alerts</h2></div><button class="text-button" id="mark-alerts-read">Mark all read</button></div>
+      <div class="agenda-list" id="alert-list"></div>
+    </section>
+  </main>
+
+  <div class="auth-screen" id="auth-screen">
+    <div class="auth-card" id="auth-card"></div>
+  </div>
+
+  <dialog id="workout-dialog">
+    <form id="workout-form" method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">Plan builder</p><h2 id="dialog-title">Build workout</h2></div><button class="icon-button" value="cancel" aria-label="Close">×</button></div>
+      <input id="workout-id" type="hidden">
+      <div class="form-row">
+        <label>Day<select id="workout-day" required><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select></label>
+        <label>Phase<select id="workout-phase" required><option>In Season</option><option>Off Season</option></select></label>
+      </div>
+      <label>Day type<input id="workout-day-type" required placeholder="Example: Normal home day or Off weekend"></label>
+      <label>Workout name<input id="workout-name" required placeholder="Example: Barrel Control + Lower Body"></label>
+      <div class="form-row">
+        <label>Duration (min)<input id="workout-duration" type="number" min="5" value="60" required></label>
+        <label>Intensity<select id="workout-intensity"><option>Low</option><option selected>Moderate</option><option>High</option></select></label>
+      </div>
+      <label>Drills <small>One per line</small><textarea id="workout-drills" rows="6" required placeholder="Tee work — 3 x 8&#10;Front toss — 4 x 6"></textarea></label>
+      <div class="dialog-actions"><button class="secondary-button" value="cancel">Cancel</button><button class="primary-button" id="save-workout" value="default">Save Workout</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="variation-dialog" class="wide-dialog">
+    <form id="variation-form" method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">Parent / coach builder</p><h2>Build Session Variation</h2></div><button class="icon-button" type="button" data-close-variation aria-label="Close">x</button></div>
+      <input id="variation-id" type="hidden">
+      <input id="variation-blueprint-id" type="hidden">
+      <label>Variation name<input id="variation-name" required placeholder="Example: Day A - Reactive Speed"></label>
+      <div id="variation-guidance" class="builder-guidance"></div>
+      <div id="variation-slots" class="variation-slots"></div>
+      <div id="variation-warnings"></div>
+      <div class="dialog-actions"><button class="secondary-button" type="button" data-close-variation>Cancel</button><button class="secondary-button" id="start-one-time" type="button">Start One-Time</button><button class="primary-button" id="save-variation" value="default">Save Variation</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="event-dialog">
+    <form id="event-form" method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">Calendar event</p><h2>Add Event</h2></div><button class="icon-button" type="button" data-close-event>x</button></div>
+      <label>Title<input id="event-title" required></label>
+      <div class="form-row"><label>Type<select id="event-type"><option>Practice</option><option>Game</option><option>Tournament</option><option>Team Workout</option><option>Individual Workout</option><option>Recovery</option></select></label><label>Workload<select id="event-workload"><option>Low</option><option selected>Moderate</option><option>High</option></select></label></div>
+      <div class="form-row"><label>Date<input id="event-date" type="date" required></label><label>For<select id="event-scope"></select></label></div>
+      <label>Repeat<select id="event-repeat"><option value="none">Does not repeat</option><option value="weekly">Weekly</option></select></label>
+      <div class="dialog-actions"><button class="secondary-button" type="button" data-close-event>Cancel</button><button class="primary-button">Save Event</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="manage-dialog">
+    <form id="manage-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Owner setup</p><h2 id="manage-title">Add</h2></div><button class="icon-button" type="button" data-close-manage>x</button></div><div id="manage-fields" class="form-stack"></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-manage>Cancel</button><button class="primary-button">Save</button></div></form>
+  </dialog>
+
+  <div class="toast" id="toast"></div>
+  <nav class="bottom-nav"><button data-view-link="dashboard">Today</button><button data-view-link="schedule">Schedule</button><button data-view-link="alerts">Alerts</button><button data-view-link="progress">Progress</button><button data-view-link="admin">Manage</button></nav>
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
