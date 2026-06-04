@@ -212,7 +212,7 @@
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Local access</p><h2>Profiles</h2></div><button class="text-button" id="add-profile">+ Profile</button></div><div id="profile-list"></div></article>
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Players and relationships</p><h2>Players</h2></div><button class="text-button" id="add-player">+ Player</button></div><div id="player-list"></div></article>
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Roster and equipment</p><h2>Teams</h2></div><button class="text-button" id="add-team">+ Team</button></div><div id="team-list"></div></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Owner controls</p><h2>Assignments</h2></div></div><form id="assignment-form" class="form-stack"><label>User<select id="assignment-user"></select></label><label>Team<select id="assignment-team"></select></label><label class="check-label"><input id="assignment-coach" type="checkbox"><span><strong>Coach</strong><small>Can manage rostered player plans</small></span></label><label class="check-label"><input id="assignment-scheduler" type="checkbox"><span><strong>Scheduler</strong><small>Can manage team calendar events</small></span></label><button class="secondary-button">Save team role</button></form></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User controls</p><h2>Team Assignments</h2></div></div><form id="assignment-form" class="form-stack"><label>User<select id="assignment-user"></select></label><label>Team<select id="assignment-team"></select></label><label class="check-label"><input id="assignment-coach" type="checkbox"><span><strong>Coach for this team</strong><small>Can manage rostered players and team calendar events</small></span></label><button class="secondary-button">Save team role</button></form></article>
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Device features</p><h2>App Settings</h2></div></div><button class="secondary-button wide" id="enable-notifications">Enable device notifications</button><button class="secondary-button wide" id="install-app">Install app</button><button class="text-button wide" id="sign-out">Sign out</button></article>
       </div>
     </section>
@@ -271,7 +271,7 @@
   </dialog>
 
   <dialog id="manage-dialog">
-    <form id="manage-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Owner setup</p><h2 id="manage-title">Add</h2></div><button class="icon-button" type="button" data-close-manage>x</button></div><div id="manage-fields" class="form-stack"></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-manage>Cancel</button><button class="primary-button">Save</button></div></form>
+    <form id="manage-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Access setup</p><h2 id="manage-title">Add</h2></div><button class="icon-button" type="button" data-close-manage>x</button></div><div id="manage-fields" class="form-stack"></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-manage>Cancel</button><button class="primary-button">Save</button></div></form>
   </dialog>
 
   <div class="toast" id="toast"></div>

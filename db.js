@@ -19,14 +19,14 @@ const ClubhouseDB = (() => {
   async function hasSetup(){return Boolean(await get("meta","setup"))}
   async function createSetup(ownerName,pin,playerName,legacyData){
     const ownerId=id("user"),playerId=id("player"),playerUserId=id("user"),teamId=id("team"),pinData=await hashPin(pin);
-    await put("users",{id:ownerId,name:ownerName,pinSalt:pinData.salt,pinHash:pinData.hash,owner:true,active:true,roles:["Owner","Parent"]});
+    await put("users",{id:ownerId,name:ownerName,pinSalt:pinData.salt,pinHash:pinData.hash,owner:true,active:true,roles:["Super User"],lastLoginAt:null,loginCount:0});
     const playerPin=await hashPin("0000");await put("users",{id:playerUserId,name:playerName,pinSalt:playerPin.salt,pinHash:playerPin.hash,owner:false,active:true,roles:["Player"]});
     await put("players",{id:playerId,name:playerName,userId:playerUserId,active:true,priorityTeamId:teamId});
     await put("teams",{id:teamId,name:"Primary Team",season:new Date().getFullYear().toString(),equipment:[]});
     await put("teamMemberships",{id:id("membership"),playerId,teamId,active:true,priority:1});
     await put("userPlayerAccess",{id:id("access"),userId:ownerId,playerId,permission:"manage"});
     await put("userPlayerAccess",{id:id("access"),userId:playerUserId,playerId,permission:"self"});
-    await put("userTeamRoles",{id:id("role"),userId:ownerId,teamId,coach:false,scheduler:true});
+    await put("userTeamRoles",{id:id("role"),userId:ownerId,teamId,coach:true,scheduler:true});
     await put("playerData",{id:playerId,data:legacyData});
     await put("meta",{id:"setup",ownerId,created:new Date().toISOString(),version:1});
     return {ownerId,playerId};

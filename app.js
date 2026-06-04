@@ -1,6 +1,9 @@
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const STORAGE_KEY = "clubhouse-baseball-v3";
 const OLD_STORAGE_KEY = "clubhouse-baseball-v2";
+const ACTIVE_USER_KEY = "clubhouse-active-user";
+const ACTIVE_PLAYER_KEY = "clubhouse-active-player";
+const ROLE_ORDER = ["Player", "Parent", "Coach", "Director", "Super User"];
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const D = (id, category, name, dose, purpose, cue, equipment, options = {}) => ({
@@ -201,18 +204,42 @@ function renderEquipment(){
   const missing=[...new Set(drillCatalog.flatMap(d=>d.equipment.filter(e=>!state.equipment.includes(e))))];
   document.querySelector("#missing-equipment-list").innerHTML=missing.map(e=>`<div class="history-item"><div><h3>${e}</h3><strong>${drillCatalog.filter(d=>d.equipment.includes(e)).length} drills</strong></div></div>`).join("")||`<div class="empty-state">The shed covers every drill in the library.</div>`;
 }
-function rolesFor(user=currentUser){const base=user?.roles||[],assigned=teamRoles.filter(r=>r.userId===user?.id).flatMap(r=>[r.coach?"Coach":null,r.scheduler?"Scheduler":null]).filter(Boolean);return [...new Set([...base,...assigned])]}
-function isAdmin(){return rolesFor().some(r=>["Owner","Parent","Coach","Scheduler"].includes(r))}
+function normalizeRoles(user){
+  const raw=user?.roles||[];
+  const roles=raw.map(r=>r==="Owner"?"Super User":r==="Scheduler"?"Director":r).filter(r=>ROLE_ORDER.includes(r));
+  if(user?.owner&&!roles.includes("Super User"))roles.push("Super User");
+  return [...new Set(roles.length?roles:["Player"])];
+}
+function rolesFor(user=currentUser){
+  const base=normalizeRoles(user);
+  const assigned=teamRoles.filter(r=>r.userId===user?.id&&r.coach).map(()=>"Coach");
+  return [...new Set([...base,...assigned])].sort((a,b)=>ROLE_ORDER.indexOf(b)-ROLE_ORDER.indexOf(a));
+}
+function highestRole(user=currentUser){return rolesFor(user)[0]||"Player"}
+function hasRole(role,user=currentUser){return ROLE_ORDER.indexOf(highestRole(user))>=ROLE_ORDER.indexOf(role)}
+function isSuperUser(user=currentUser){return rolesFor(user).includes("Super User")}
+function isDirector(user=currentUser){return hasRole("Director",user)}
+function isCoach(user=currentUser){return hasRole("Coach",user)||teamRoles.some(r=>r.userId===user?.id&&r.coach)}
+function isAdmin(){return hasRole("Parent")}
 function accessiblePlayerIds(){
   if(!currentUser)return[];
-  if(currentUser.owner)return players.map(p=>p.id);
+  if(isDirector())return players.map(p=>p.id);
   const direct=accessRecords.filter(a=>a.userId===currentUser.id).map(a=>a.playerId);
   const coachedTeams=teamRoles.filter(r=>r.userId===currentUser.id&&r.coach).map(r=>r.teamId);
   const coached=memberships.filter(m=>coachedTeams.includes(m.teamId)&&m.active).map(m=>m.playerId);
   return [...new Set([...direct,...coached])];
 }
+function managedTeamIds(){
+  if(isDirector())return teams.map(t=>t.id);
+  const coached=teamRoles.filter(r=>r.userId===currentUser?.id&&r.coach).map(r=>r.teamId);
+  const household=memberships.filter(m=>accessiblePlayerIds().includes(m.playerId)&&m.active).map(m=>m.teamId);
+  return [...new Set([...coached,...household])];
+}
 function canSchedule(){
-  return currentUser?.owner||teamRoles.some(r=>r.userId===currentUser?.id&&r.scheduler);
+  return hasRole("Parent")||teamRoles.some(r=>r.userId===currentUser?.id&&(r.coach||r.scheduler));
+}
+function canScheduleTeam(teamId){
+  return isDirector()||teamRoles.some(r=>r.userId===currentUser?.id&&r.teamId===teamId&&(r.coach||r.scheduler));
 }
 function renderContext(){
   document.querySelector("#profile-name").textContent=currentUser?.name||"Profile";
@@ -245,15 +272,24 @@ function renderSchedule(){
 }
 function renderAdmin(){
   if(!currentUser)return;
-  document.querySelector("#profile-list").innerHTML=users.map(u=>`<div class="manage-row"><div><strong>${u.name}</strong><small>${u.roles.join(" · ")}</small></div>${currentUser.owner&&u.id!==currentUser.id?`<button data-reset-pin="${u.id}">Reset PIN</button>`:""}</div>`).join("");
-  document.querySelector("#player-list").innerHTML=players.map(p=>`<div class="manage-row"><div><strong>${p.name}</strong><small>Priority: ${teams.find(t=>t.id===p.priorityTeamId)?.name||"None"}</small></div></div>`).join("");
-  document.querySelector("#team-list").innerHTML=teams.map(t=>`<div class="manage-row"><div><strong>${t.name}</strong><small>${t.season} · ${memberships.filter(m=>m.teamId===t.id&&m.active).length} players</small></div><div><button data-roster-team="${t.id}">${memberships.some(m=>m.teamId===t.id&&m.playerId===currentPlayer?.id)?"Remove selected":"Add selected"}</button><button data-priority-team="${t.id}">Make priority</button></div></div>`).join("");
-  document.querySelector("#assignment-user").innerHTML=users.filter(u=>!u.roles.includes("Player")).map(u=>`<option value="${u.id}">${u.name}</option>`).join("");
+  document.querySelector("#add-profile").hidden=!isDirector();
+  document.querySelector("#add-team").hidden=!isDirector();
+  document.querySelector("#add-player").hidden=!hasRole("Parent");
+  document.querySelector("#assignment-form").closest("article").hidden=!isDirector();
+  const playerIds=accessiblePlayerIds(),teamIds=managedTeamIds();
+  const visibleUsers=isDirector()?users:users.filter(u=>u.id===currentUser.id||players.some(p=>playerIds.includes(p.id)&&p.userId===u.id));
+  const visiblePlayers=players.filter(p=>playerIds.includes(p.id));
+  const visibleTeams=teams.filter(t=>teamIds.includes(t.id));
+  document.querySelector("#profile-list").innerHTML=visibleUsers.map(u=>`<div class="manage-row"><div><strong>${u.name}</strong><small>${rolesFor(u).join(" · ")}${u.lastLoginAt?` · Last login ${fmtDate(u.lastLoginAt.slice(0,10))}`:""} · ${u.loginCount||0} logins</small></div>${isSuperUser()&&u.id!==currentUser.id?`<button data-reset-pin="${u.id}">Reset PIN</button>`:""}</div>`).join("");
+  document.querySelector("#player-list").innerHTML=visiblePlayers.map(p=>`<div class="manage-row"><div><strong>${p.name}</strong><small>Priority: ${teams.find(t=>t.id===p.priorityTeamId)?.name||"None"}</small></div></div>`).join("");
+  document.querySelector("#team-list").innerHTML=visibleTeams.map(t=>`<div class="manage-row"><div><strong>${t.name}</strong><small>${t.season} · ${memberships.filter(m=>m.teamId===t.id&&m.active).length} players</small></div><div>${isDirector()||canScheduleTeam(t.id)?`<button data-roster-team="${t.id}">${memberships.some(m=>m.teamId===t.id&&m.playerId===currentPlayer?.id)?"Remove selected":"Add selected"}</button><button data-priority-team="${t.id}">Make priority</button>`:""}</div></div>`).join("");
+  document.querySelector("#assignment-user").innerHTML=users.filter(u=>!rolesFor(u).includes("Player")).map(u=>`<option value="${u.id}">${u.name}</option>`).join("");
   document.querySelector("#assignment-team").innerHTML=teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join("");
 }
 function alertVisible(a){
-  if(currentUser?.owner)return true;
+  if(isDirector())return true;
   if(a.userIds?.includes(currentUser?.id))return true;
+  if(a.playerId&&players.find(p=>p.id===a.playerId)?.userId===currentUser?.id)return true;
   if(a.playerId&&accessRecords.some(x=>x.userId===currentUser?.id&&x.playerId===a.playerId))return true;
   const playerTeams=memberships.filter(m=>m.playerId===a.playerId).map(m=>m.teamId);
   return teamRoles.some(r=>r.userId===currentUser?.id&&r.coach&&playerTeams.includes(r.teamId));
@@ -287,39 +323,51 @@ function selectedVariationSession(){const b=workoutFor(document.querySelector("#
 function updateVariationWarnings(){const box=document.querySelector("#variation-warnings"),session=selectedVariationSession(),issues=sessionIssues(session);box.innerHTML=issues.length?`<div class="builder-warnings">${issues.map(i=>`<p class="${i.type}">${i.text}</p>`).join("")}</div>`:`<div class="builder-ready">Ready to save. All selected drills are approved and equipment-ready.</div>`}
 async function refreshRecords(){
   [users,players,teams,memberships,accessRecords,teamRoles,events,alerts,decisions]=await Promise.all(["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","alerts","decisions"].map(ClubhouseDB.all));
+  users=users.map(u=>({...u,roles:normalizeRoles(u),loginCount:u.loginCount||0,lastLoginAt:u.lastLoginAt||null}));
 }
 async function selectPlayer(id){
   currentPlayer=players.find(p=>p.id===id)||players.find(p=>accessiblePlayerIds().includes(p.id));
   if(!currentPlayer)return;
   const record=await ClubhouseDB.get("playerData",currentPlayer.id);state=normalizeState(record?.data||structuredClone(defaultState));
-  sessionStorage.setItem("clubhouse-player",currentPlayer.id);renderAll();
+  localStorage.setItem(ACTIVE_PLAYER_KEY,currentPlayer.id);renderAll();
 }
 function showAuth(){document.querySelector("#auth-screen").classList.add("show")}
 function hideAuth(){document.querySelector("#auth-screen").classList.remove("show")}
 function setupScreen(){
-  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">First-time setup</p><h1>Create your local clubhouse</h1><p>This device will store profiles, schedules, and training records. Existing training data will be copied into the first player.</p><form id="setup-form" class="form-stack"><label>Owner name<input id="setup-owner" required></label><label>Owner PIN<input id="setup-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Initial player name<input id="setup-player" required></label><button class="primary-button">Create clubhouse</button></form>`;
-  document.querySelector("#setup-form").onsubmit=async e=>{e.preventDefault();await ClubhouseDB.createSetup(document.querySelector("#setup-owner").value.trim(),document.querySelector("#setup-pin").value,document.querySelector("#setup-player").value.trim(),state);await refreshRecords();currentUser=users.find(u=>u.owner);sessionStorage.setItem("clubhouse-user",currentUser.id);await selectPlayer(players[0].id);hideAuth()};
+  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">First-time setup</p><h1>Create your local clubhouse</h1><p>This device will store profiles, schedules, and training records. Existing training data will be copied into the first player.</p><form id="setup-form" class="form-stack"><label>Super User name<input id="setup-owner" required></label><label>Super User PIN<input id="setup-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Initial player name<input id="setup-player" required></label><button class="primary-button">Create clubhouse</button></form>`;
+  document.querySelector("#setup-form").onsubmit=async e=>{e.preventDefault();await ClubhouseDB.createSetup(document.querySelector("#setup-owner").value.trim(),document.querySelector("#setup-pin").value,document.querySelector("#setup-player").value.trim(),state);await refreshRecords();currentUser=users.find(u=>isSuperUser(u));await recordLogin(currentUser);localStorage.setItem(ACTIVE_USER_KEY,currentUser.id);await selectPlayer(players[0].id);hideAuth()};
 }
 function loginScreen(message=""){
   document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Local login</p><h1>Who's using Clubhouse?</h1>${message?`<p class="auth-error">${message}</p>`:""}<form id="login-form" class="form-stack"><label>Profile<select id="login-user">${users.filter(u=>u.active).map(u=>`<option value="${u.id}">${u.name} · ${u.roles.join("/")}</option>`).join("")}</select></label><label>PIN<input id="login-pin" type="password" inputmode="numeric" required></label><button class="primary-button">Enter clubhouse</button></form>`;
-  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();const user=users.find(u=>u.id===document.querySelector("#login-user").value);if(!await ClubhouseDB.verifyPin(document.querySelector("#login-pin").value,user)){loginScreen("That PIN did not match.");return}currentUser=user;sessionStorage.setItem("clubhouse-user",user.id);await selectPlayer(sessionStorage.getItem("clubhouse-player"));hideAuth();roleHome()};
+  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();const user=users.find(u=>u.id===document.querySelector("#login-user").value);if(!await ClubhouseDB.verifyPin(document.querySelector("#login-pin").value,user)){loginScreen("That PIN did not match.");return}currentUser=user;await recordLogin(user);localStorage.setItem(ACTIVE_USER_KEY,user.id);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()};
 }
-function roleHome(){if(rolesFor().includes("Player"))switchView("dashboard");else if(rolesFor().includes("Coach"))switchView("schedule");else switchView(alerts.some(a=>!a.read&&alertVisible(a))?"alerts":"dashboard")}
+async function recordLogin(user){
+  if(!user)return;
+  user.roles=normalizeRoles(user);
+  user.lastLoginAt=new Date().toISOString();
+  user.loginCount=(user.loginCount||0)+1;
+  await ClubhouseDB.put("users",user);
+}
+function roleHome(){if(highestRole()==="Player")switchView("dashboard");else if(isCoach()&&!isDirector())switchView("schedule");else switchView(alerts.some(a=>!a.read&&alertVisible(a))?"alerts":"dashboard")}
 async function boot(){
   await ClubhouseDB.open();
   if(!await ClubhouseDB.hasSetup()){showAuth();setupScreen();return}
   await refreshRecords();
-  const saved=users.find(u=>u.id===sessionStorage.getItem("clubhouse-user"));
+  const saved=users.find(u=>u.id===localStorage.getItem(ACTIVE_USER_KEY));
   if(!saved){showAuth();loginScreen();return}
-  currentUser=saved;await selectPlayer(sessionStorage.getItem("clubhouse-player"));hideAuth();roleHome();
+  currentUser=saved;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
 }
 async function createAlert(type,title,message,playerId=currentPlayer?.id){
   const item={id:ClubhouseDB.id("alert"),type,title,message,playerId,status:"pending",read:false,created:new Date().toISOString()};await ClubhouseDB.put("alerts",item);alerts.push(item);
   if(Notification.permission==="granted")new Notification(title,{body:message,icon:"assets/icon.svg"});
 }
+function profileRoleOptions(){
+  const roles=isSuperUser()?["Super User","Director","Coach","Parent","Player"]:["Director","Coach","Parent","Player"];
+  return roles.map(r=>`<option>${r}</option>`).join("");
+}
 function openManage(kind){
   document.querySelector("#manage-title").textContent=`Add ${kind}`;
-  document.querySelector("#manage-fields").innerHTML=kind==="Profile"?`<input type="hidden" id="manage-kind" value="Profile"><label>Name<input id="manage-name" required></label><label>PIN<input id="manage-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Roles<select id="manage-role"><option>Parent</option><option>Coach</option><option>Scheduler</option><option>Player</option></select></label>`:kind==="Player"?`<input type="hidden" id="manage-kind" value="Player"><label>Player name<input id="manage-name" required></label><label>Player login PIN<input id="manage-player-pin" type="password" inputmode="numeric" minlength="4" value="0000" required></label><label>Linked parent<select id="manage-parent"><option value="">None</option>${users.filter(u=>u.roles.includes("Parent")).map(u=>`<option value="${u.id}">${u.name}</option>`).join("")}</select></label>`:`<input type="hidden" id="manage-kind" value="Team"><label>Team name<input id="manage-name" required></label><label>Season<input id="manage-season" value="${new Date().getFullYear()}"></label>`;
+  document.querySelector("#manage-fields").innerHTML=kind==="Profile"?`<input type="hidden" id="manage-kind" value="Profile"><label>Name<input id="manage-name" required></label><label>PIN<input id="manage-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Role<select id="manage-role">${profileRoleOptions()}</select></label>`:kind==="Player"?`<input type="hidden" id="manage-kind" value="Player"><label>Player name<input id="manage-name" required></label><label>Player login PIN<input id="manage-player-pin" type="password" inputmode="numeric" minlength="4" value="0000" required></label><label>Linked parent<select id="manage-parent"><option value="">None</option>${users.filter(u=>rolesFor(u).includes("Parent")).map(u=>`<option value="${u.id}">${u.name}</option>`).join("")}</select></label>`:`<input type="hidden" id="manage-kind" value="Team"><label>Team name<input id="manage-name" required></label><label>Season<input id="manage-season" value="${new Date().getFullYear()}"></label>`;
   document.querySelector("#manage-dialog").showModal();
 }
 
@@ -355,12 +403,12 @@ document.querySelector("#save-readiness").onclick=async()=>{state.readiness.date
 document.querySelector("#log-rpe").oninput=e=>document.querySelector("#rpe-output").textContent=e.target.value;
 document.querySelector("#pitch-soreness").oninput=e=>document.querySelector("#pitch-soreness-output").textContent=e.target.value;
 document.querySelector("#equipment-form").onsubmit=e=>{e.preventDefault();const name=document.querySelector("#equipment-name").value.trim();if(name&&!state.equipment.some(x=>x.toLowerCase()===name.toLowerCase()))state.equipment.push(name);saveState();e.target.reset();renderAll();showToast("Equipment added")};
-document.querySelector("#add-event").onclick=()=>{document.querySelector("#event-date").value=todayISO();document.querySelector("#event-scope").innerHTML=`<option value="player:${currentPlayer.id}">${currentPlayer.name}</option>${teams.filter(t=>memberships.some(m=>m.playerId===currentPlayer.id&&m.teamId===t.id)).map(t=>`<option value="team:${t.id}">${t.name}</option>`).join("")}`;document.querySelector("#event-dialog").showModal()};
+document.querySelector("#add-event").onclick=()=>{document.querySelector("#event-date").value=todayISO();const teamOptions=teams.filter(t=>memberships.some(m=>m.playerId===currentPlayer.id&&m.teamId===t.id)&&canScheduleTeam(t.id)).map(t=>`<option value="team:${t.id}">${t.name}</option>`).join("");document.querySelector("#event-scope").innerHTML=`<option value="player:${currentPlayer.id}">${currentPlayer.name}</option>${teamOptions}`;document.querySelector("#event-dialog").showModal()};
 document.querySelector("#event-form").onsubmit=async e=>{e.preventDefault();const [scope,id]=document.querySelector("#event-scope").value.split(":");await ClubhouseDB.put("events",{id:ClubhouseDB.id("event"),title:document.querySelector("#event-title").value.trim(),type:document.querySelector("#event-type").value,workload:document.querySelector("#event-workload").value,date:document.querySelector("#event-date").value,repeat:document.querySelector("#event-repeat").value,[`${scope}Id`]:id,createdBy:currentUser.id});document.querySelector("#event-dialog").close();e.target.reset();await refreshRecords();renderAll()};
 document.querySelector("#add-profile").onclick=()=>openManage("Profile");document.querySelector("#add-player").onclick=()=>openManage("Player");document.querySelector("#add-team").onclick=()=>openManage("Team");
 document.querySelector("#manage-form").onsubmit=async e=>{e.preventDefault();const kind=document.querySelector("#manage-kind").value,name=document.querySelector("#manage-name").value.trim();if(kind==="Profile"){const h=await ClubhouseDB.hashPin(document.querySelector("#manage-pin").value);await ClubhouseDB.put("users",{id:ClubhouseDB.id("user"),name,pinSalt:h.salt,pinHash:h.hash,owner:false,active:true,roles:[document.querySelector("#manage-role").value]})}else if(kind==="Player"){const id=ClubhouseDB.id("player"),userId=ClubhouseDB.id("user"),h=await ClubhouseDB.hashPin(document.querySelector("#manage-player-pin").value);await ClubhouseDB.put("users",{id:userId,name,pinSalt:h.salt,pinHash:h.hash,owner:false,active:true,roles:["Player"]});await ClubhouseDB.put("players",{id,name,userId,active:true});await ClubhouseDB.put("playerData",{id,data:structuredClone(defaultState)});await ClubhouseDB.put("userPlayerAccess",{id:ClubhouseDB.id("access"),userId,playerId:id,permission:"self"});const parent=document.querySelector("#manage-parent").value;if(parent)await ClubhouseDB.put("userPlayerAccess",{id:ClubhouseDB.id("access"),userId:parent,playerId:id,permission:"manage"})}else await ClubhouseDB.put("teams",{id:ClubhouseDB.id("team"),name,season:document.querySelector("#manage-season").value,equipment:[]});document.querySelector("#manage-dialog").close();await refreshRecords();renderAll()};
-document.querySelector("#assignment-form").onsubmit=async e=>{e.preventDefault();const userId=document.querySelector("#assignment-user").value,teamId=document.querySelector("#assignment-team").value,existing=teamRoles.find(r=>r.userId===userId&&r.teamId===teamId);await ClubhouseDB.put("userTeamRoles",{id:existing?.id||ClubhouseDB.id("role"),userId,teamId,coach:document.querySelector("#assignment-coach").checked,scheduler:document.querySelector("#assignment-scheduler").checked});await refreshRecords();renderAll();showToast("Team role saved")};
-document.querySelector("#sign-out").onclick=()=>{sessionStorage.removeItem("clubhouse-user");currentUser=null;showAuth();loginScreen()};
+document.querySelector("#assignment-form").onsubmit=async e=>{e.preventDefault();const userId=document.querySelector("#assignment-user").value,teamId=document.querySelector("#assignment-team").value,existing=teamRoles.find(r=>r.userId===userId&&r.teamId===teamId),coach=document.querySelector("#assignment-coach").checked;await ClubhouseDB.put("userTeamRoles",{id:existing?.id||ClubhouseDB.id("role"),userId,teamId,coach,scheduler:coach});await refreshRecords();renderAll();showToast("Team role saved")};
+document.querySelector("#sign-out").onclick=()=>{localStorage.removeItem(ACTIVE_USER_KEY);currentUser=null;showAuth();loginScreen()};
 document.querySelector("#enable-notifications").onclick=async()=>{if("Notification"in window){const p=await Notification.requestPermission();showToast(`Notifications: ${p}`)}};
 document.querySelector("#install-app").onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt=null}else showToast("Use your browser's Add to Home Screen option.")};
 document.querySelector("#mark-alerts-read").onclick=async()=>{for(const a of alerts.filter(alertVisible)){a.read=true;await ClubhouseDB.put("alerts",a)}renderAll()};
