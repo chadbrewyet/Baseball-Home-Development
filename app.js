@@ -224,6 +224,7 @@ function userRecordAssociations(userId=currentUser?.id,type){return recordAssoci
 function isRecordAdmin(type,recordId,userId=currentUser?.id){return isSuperUser({...(users.find(u=>u.id===userId)||{}),roles:users.find(u=>u.id===userId)?.roles})||(["superUser","unassociated","director","coach","parent"].includes(type)&&isSuperUser(actualUser))||assocFor(userId,type,recordId)?.role==="admin"}
 function visibleRecords(type,userId=currentUser?.id){if(isSuperUser())return recordsForType(type);const ids=userRecordAssociations(userId,type).map(a=>a.recordId);return recordsForType(type).filter(r=>ids.includes(r.id)||(type==="player"&&r.userId===userId))}
 function pendingRequestsForAdmin(){return accessRequests.filter(r=>r.status==="pending"&&isRecordAdmin(r.recordType,r.recordId))}
+function pendingApprovalCount(){return pendingRequestsForAdmin().length}
 function installGuidance(){if(deferredInstallPrompt)return "Install app";return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)?"Add to Home Screen":"Install app"}
 function renderReadiness(){Object.entries(FEELINGS).forEach(([key,choices])=>{document.querySelector(`#${key}-options`).innerHTML=choices.map(([label,value])=>`<button type="button" class="feeling-choice ${state.readiness[key]===value?"selected":""}" data-feeling="${key}" data-value="${value}">${feelingSvg(value,key==="soreness")}<span>${label}</span></button>`).join("")});document.querySelector("#readiness-detail-wrap").hidden=state.readiness.arm>1&&state.readiness.soreness<7;document.querySelector("#readiness-score").textContent=((+state.readiness.energy + +state.readiness.arm + (11- +state.readiness.soreness))/3).toFixed(1)}
 function renderPlan(){
@@ -328,7 +329,9 @@ function renderContext(){
   document.querySelector("#equipment-form").hidden=!isAdmin();
   document.querySelector("#add-event").hidden=!canSchedule();
   applyViewAccess();
-  document.querySelector("#alert-badge").textContent=alerts.filter(a=>!a.read&&alertVisible(a)).length||"";
+  const alertCount=alerts.filter(a=>!a.read&&alertVisible(a)).length+pendingApprovalCount();
+  document.querySelector("#alert-badge").textContent=alertCount||"";
+  document.querySelector("#avatar-alert").hidden=!pendingApprovalCount();
   document.querySelector("#masquerade-banner").hidden=!isMasquerading();
   document.querySelector("#masquerade-banner").innerHTML=isMasquerading()?`Masquerading as ${esc(currentUser.name)}. Security settings are disabled. <button class="text-button" id="banner-exit-masquerade" type="button">Exit masquerade</button>`:"";
 }
@@ -373,16 +376,19 @@ function recordTable(type,items,adminMode=false){const rows=items.map(r=>`<tr><t
 function adminRecordActions(record,type){const canMasq=["coach","player"].includes(type)||["Director","Parent","Player","Coach"].some(role=>rolesFor(record).includes(role));const canDelete=!(type==="superUser"&&record.id===actualUser?.id);return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record data-record-type="${type}" data-record-id="${esc(record.id)}">Edit</button>${type==="unassociated"?`<button class="icon-action" title="Make Super User" data-promote-super="${esc(record.id)}">Make Super</button>`:""}${canMasq&&!isSuperUser(record)?`<button class="icon-action" title="Masquerade" data-masquerade-user="${esc(record.userId||record.id)}">Masq</button>`:""}${canDelete?`<button class="icon-action danger" title="Delete" data-delete-record data-record-type="${type}" data-record-id="${esc(record.id)}">Delete</button>`:""}</div>`}
 function profileAssociationSection(meta){const items=visibleRecords(meta.type);if(!items.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Associated records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,items)}</article>`}
 function pendingRequestSection(){const reqs=pendingRequestsForAdmin();if(!reqs.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.map(r=>{const user=users.find(u=>u.id===r.userId),meta=recordMeta(r.recordType),rec=recordsForType(r.recordType).find(x=>x.id===r.recordId);return `<div class="manage-row"><div><strong>${esc(user?.name||"User")}</strong><small>Requests ${esc(meta?.label||r.recordType)} access: ${esc(recordName(rec))} (${esc(r.recordId)})</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join("")}</article>`}
-function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,recordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${sections}${appSettingsSection()}`}
+function refreshButton(){return `<button class="secondary-button refresh-button" type="button" id="refresh-profile"><span class="refresh-icon">R</span> Refresh</button>`}
+function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,recordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${sections}${appSettingsSection()}`}
 function renderAdmin(){
   if(!currentUser)return;
-  document.querySelector("#profile-actions").innerHTML=isSuperUser()?"":`<button class="primary-button" type="button" id="add-new-button">Add New</button><button class="secondary-button" type="button" id="link-record-button">Link</button>`;
+  document.querySelector("#profile-actions").innerHTML=isSuperUser()?"":`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button><button class="secondary-button" type="button" id="link-record-button">Link</button>`;
   if(isSuperUser()){renderSuperAdmin();return}
   document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${pendingRequestSection()}${RECORD_TYPES.slice(0,5).map(profileAssociationSection).join("")}${appSettingsSection()}`;
 }
 function renderAlerts(){
-  const visible=alerts.filter(alertVisible).sort((a,b)=>b.created.localeCompare(a.created));
-  document.querySelector("#alert-list").innerHTML=visible.map(a=>`<article class="agenda-item ${a.read?"":"unread"}"><time>${fmtDate(a.created.slice(0,10))}</time><div><span class="tag">${a.type}</span><h3>${a.title}</h3><p>${a.message}</p>${a.status==="pending"&&isAdmin()?`<div class="conflict-actions"><button data-pain-decision="allow" data-alert-id="${a.id}">Allow this session</button><button data-pain-decision="remove" data-alert-id="${a.id}">Remove throwing</button></div>`:""}</div></article>`).join("")||`<div class="empty-state">No alerts.</div>`;
+  const visible=alerts.filter(alertVisible).sort((a,b)=>b.created.localeCompare(a.created)),approvals=pendingRequestsForAdmin();
+  const approvalItems=approvals.map(r=>{const user=users.find(u=>u.id===r.userId),meta=recordMeta(r.recordType),rec=recordsForType(r.recordType).find(x=>x.id===r.recordId);return `<article class="agenda-item unread"><time>Pending</time><div><span class="tag">Approval</span><h3>${esc(meta?.label||r.recordType)} access request</h3><p>${esc(user?.name||"User")} requested access to ${esc(recordName(rec))} (${esc(r.recordId)})</p><div class="conflict-actions"><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div></article>`}).join("");
+  const alertItems=visible.map(a=>`<article class="agenda-item ${a.read?"":"unread"}"><time>${fmtDate(a.created.slice(0,10))}</time><div><span class="tag">${a.type}</span><h3>${a.title}</h3><p>${a.message}</p>${a.status==="pending"&&isAdmin()?`<div class="conflict-actions"><button data-pain-decision="allow" data-alert-id="${a.id}">Allow this session</button><button data-pain-decision="remove" data-alert-id="${a.id}">Remove throwing</button></div>`:""}</div></article>`).join("");
+  document.querySelector("#alert-list").innerHTML=approvalItems+alertItems||`<div class="empty-state">No alerts.</div>`;
 }
 function renderProgress(){const mins=state.logs.reduce((s,l)=>s+Number(l.duration),0),recent=state.logs.slice(-8),bench=state.logs.flatMap(l=>l.drillResults||[]).filter(r=>r.benchmarkValue!=="");document.querySelector("#progress-stats").innerHTML=[["Sessions",state.logs.length,"completed"],["Training hours",(mins/60).toFixed(1),"time invested"],["Variants",state.variations.length,"saved and reusable"],["Benchmarks",bench.length,"results recorded"]].map(statCard).join("");document.querySelector("#effort-chart").innerHTML=recent.length?recent.map(l=>`<div class="chart-bar" style="--height:${l.rpe*10}%"><strong>${l.rpe}</strong><i style="height:${l.rpe*10}%"></i><small>${fmtDate(l.date)}</small></div>`).join(""):`<div class="empty-state">Log sessions to build your trend.</div>`;const counts=state.logs.flatMap(l=>l.drillResults||[]).reduce((a,r)=>{const c=drillFor(r.drillId)?.category||"Other";a[c]=(a[c]||0)+1;return a},{}),mx=Math.max(...Object.values(counts),1);document.querySelector("#category-progress").innerHTML=Object.entries(counts).map(([n,v])=>`<div class="category-item"><div><strong>${n}</strong><span>${v} completed</span></div><div class="category-bar"><i style="width:${v/mx*100}%"></i></div></div>`).join("")||`<div class="empty-state">No drill data yet.</div>`;document.querySelector("#takeaway-grid").innerHTML=state.logs.filter(l=>l.notes).slice(-3).reverse().map(l=>`<div class="takeaway"><small>${fmtDate(l.date)}</small><p>${l.notes}</p></div>`).join("")||`<div class="empty-state">Session notes will appear here.</div>`}
 
@@ -621,7 +627,7 @@ async function deleteRecord(type,recordId){
 }
 async function approveRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!req||!isRecordAdmin(req.recordType,req.recordId))return;
-  await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:req.userId,recordType:req.recordType,recordId:req.recordId,role:"member",active:true,created:new Date().toISOString(),createdBy:currentUser.id});
+  await grantRecordAccess(req.userId,req.recordType,req.recordId,"member");
   req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function denyRecordRequest(id){
@@ -630,24 +636,44 @@ async function denyRecordRequest(id){
 }
 async function inviteToRecord(type,recordId,email){
   if(!isRecordAdmin(type,recordId)){alert("Only a record administrator can invite users.");return}
-  const existing=users.find(u=>u.username?.toLowerCase()===email.toLowerCase());
+  const normalized=email.toLowerCase(),existing=users.find(u=>u.username?.toLowerCase()===normalized);
   if(existing){
-    await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:existing.id,recordType:type,recordId,role:"member",active:true,created:new Date().toISOString(),createdBy:currentUser.id});
+    existing.status="active";await ClubhouseDB.put("users",existing);
+    await grantRecordAccess(existing.id,type,recordId,"member");
     return "linked";
   }
-  await ClubhouseDB.put("invitations",{id:ClubhouseDB.id("invite"),email,recordType:type,recordId,role:"member",status:"pending",invitedBy:currentUser.id,created:new Date().toISOString()});
+  await ClubhouseDB.put("invitations",{id:ClubhouseDB.id("invite"),email:normalized,recordType:type,recordId,role:"member",status:"pending",invitedBy:currentUser.id,created:new Date().toISOString()});
   return "pending";
 }
+async function grantRecordAccess(userId,type,recordId,role="member"){
+  const existing=recordAssociations.find(a=>a.userId===userId&&a.recordType===type&&a.recordId===recordId);
+  await ClubhouseDB.put("recordAssociations",{id:existing?.id||ClubhouseDB.id("assoc"),userId,recordType:type,recordId,role,active:true,created:existing?.created||new Date().toISOString(),createdBy:existing?.createdBy||currentUser.id});
+  if(type==="team"){
+    const coachRole=teamCoachRoles.find(r=>r.userId===userId&&r.teamId===recordId);
+    await ClubhouseDB.put("teamCoachRoles",{id:coachRole?.id||ClubhouseDB.id("coachRole"),userId,teamId:recordId,coachType:coachRole?.coachType||"assistant",permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:false,manageAssistants:false},specializations:coachRole?.specializations||["All"],active:true});
+  }
+}
 function openAddMenu(anchor){
+  const existing=anchor.nextElementSibling;if(existing?.classList.contains("floating-menu")){existing.remove();return}
   const old=document.querySelector(".floating-menu");if(old)old.remove();
   const types=isSuperUser(actualUser)&&!isMasquerading()?[{type:"superUser",label:"Super User"},...RECORD_TYPES]:RECORD_TYPES;
   const menu=document.createElement("div");menu.className="floating-menu";menu.innerHTML=types.map(m=>`<button type="button" data-create-record="${m.type}">${m.label}</button>`).join("");
   anchor.after(menu);
 }
 function openLinkMenu(anchor){
+  const existing=anchor.nextElementSibling;if(existing?.classList.contains("floating-menu")){existing.remove();return}
   const old=document.querySelector(".floating-menu");if(old)old.remove();
   const menu=document.createElement("div");menu.className="floating-menu";menu.innerHTML=RECORD_TYPES.map(m=>`<button type="button" data-link-record="${m.type}">${m.label}</button>`).join("");
   anchor.after(menu);
+}
+async function refreshProfileSections(button){
+  button?.classList.add("refreshing");
+  await refreshRecords();
+  actualUser=users.find(u=>u.id===actualUser?.id)||actualUser;
+  currentUser=users.find(u=>u.id===currentUser?.id)||currentUser;
+  renderAdmin();renderAlerts();renderContext();
+  setTimeout(()=>button?.classList.remove("refreshing"),450);
+  showToast("Profile data refreshed");
 }
 
 document.addEventListener("click",e=>{
@@ -675,6 +701,7 @@ document.addEventListener("click",e=>{
   const deny=e.target.closest("[data-deny-request]");if(deny){const req=accessRequests.find(r=>r.id===deny.dataset.denyRequest);(req?.recordType?denyRecordRequest(req.id):denyRequest(req.id)).then(async()=>{await refreshRecords();renderAll();showToast("Request denied")})}
   if(e.target.closest("[data-close-link]"))document.querySelector("#link-dialog").close();
   if(e.target.closest("[data-close-invite]"))document.querySelector("#invite-dialog").close();
+  const refresh=e.target.closest("#refresh-profile");if(refresh)refreshProfileSections(refresh);
   const addNew=e.target.closest("#add-new-button");if(addNew)openAddMenu(addNew);
   const linkButton=e.target.closest("#link-record-button");if(linkButton)openLinkMenu(linkButton);
   const createRecord=e.target.closest("[data-create-record]");if(createRecord){document.querySelector(".floating-menu")?.remove();openRecordCreate(createRecord.dataset.createRecord)}
@@ -690,6 +717,7 @@ document.addEventListener("click",e=>{
   if(e.target.closest("#enable-notifications")){if("Notification"in window)Notification.requestPermission().then(p=>{showToast(`Notifications: ${p}`);renderAll()});else showToast("Notifications are not available in this browser.")}
   if(e.target.closest("#install-app")){if(deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt=null}else showToast(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)?"Use Add to Home Screen in your browser menu.":"Use the browser install option, if available.")}
   if(!e.target.closest(".avatar-wrap"))document.querySelector("#profile-menu").hidden=true;
+  if(!e.target.closest(".profile-actions")&&!e.target.closest(".floating-menu"))document.querySelector(".floating-menu")?.remove();
 });
 document.addEventListener("change",e=>{if(e.target.matches("[data-variation-slot]"))updateVariationWarnings();if(e.target.id==="log-workout")renderLogDrills()});
 document.addEventListener("submit",async e=>{

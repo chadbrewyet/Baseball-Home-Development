@@ -89,7 +89,10 @@ const ClubhouseDB = (() => {
     for(const invite of pendingInvites){
       if(invite.recordType==="superUser"){
         user.roles=["Super User"];user.status="active";await put("users",user);
-      }else await put("recordAssociations",{id:id("assoc"),userId:user.id,recordType:invite.recordType,recordId:invite.recordId,role:invite.role||"member",active:true,created:new Date().toISOString(),createdBy:invite.invitedBy});
+      }else{
+        await put("recordAssociations",{id:id("assoc"),userId:user.id,recordType:invite.recordType,recordId:invite.recordId,role:invite.role||"member",active:true,created:new Date().toISOString(),createdBy:invite.invitedBy});
+        if(invite.recordType==="team")await put("teamCoachRoles",{id:id("coachRole"),userId:user.id,teamId:invite.recordId,coachType:"assistant",permissions:{manageTeam:true,managePlans:true,manageParents:false,manageAssistants:false},specializations:["All"],active:true});
+      }
       invite.status="accepted";invite.acceptedBy=user.id;invite.acceptedAt=new Date().toISOString();await put("invitations",invite);
     }
     return user;
