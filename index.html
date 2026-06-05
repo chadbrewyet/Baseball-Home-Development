@@ -50,8 +50,13 @@
         <h1 id="page-title">Dashboard</h1>
       </div>
       <select id="context-player" aria-label="Selected player"></select>
-      <button class="profile-button" id="profile-button"><span id="profile-name">Profile</span><small id="profile-roles"></small></button>
-      <button class="primary-button" id="quick-log">+ Log Session</button>
+      <div class="avatar-wrap">
+        <button class="avatar-button" id="profile-button" aria-label="Open profile menu"><span id="avatar-initials">?</span></button>
+        <div class="profile-menu" id="profile-menu" hidden>
+          <button type="button" data-profile-action="edit">Edit Profile</button>
+          <button type="button" data-profile-action="logout">Log Out</button>
+        </div>
+      </div>
     </header>
 
     <section class="view active" id="dashboard-view">
@@ -209,15 +214,8 @@
     </section>
 
     <section class="view" id="admin-view">
-      <div class="admin-grid">
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Local access</p><h2>Profiles</h2></div><button class="text-button" id="add-profile">+ Profile</button></div><div id="profile-list"></div></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Players and relationships</p><h2>Players</h2></div><button class="text-button" id="add-player">+ Player</button></div><div id="player-list"></div></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Roster and equipment</p><h2>Teams</h2></div><button class="text-button" id="add-team">+ Team</button></div><div id="team-list"></div></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Association approvals</p><h2>Pending Requests</h2></div></div><div id="request-list"></div></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Coach controls</p><h2>Team Assignments</h2></div></div><form id="assignment-form" class="form-stack"><label>User<select id="assignment-user"></select></label><label>Team<select id="assignment-team"></select></label><label>Coach type<select id="assignment-coach-type"><option value="assistant">Assistant Coach</option><option value="head">Head Coach</option></select></label><label>Specializations<select id="assignment-specializations" multiple><option selected>All</option><option>pitching</option><option>hitting</option><option>infielding</option><option>outfielding</option><option>catching</option></select></label><button class="secondary-button">Save team role</button></form></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User testing</p><h2>Masquerade</h2></div></div><form id="masquerade-form" class="form-stack"><label>Use app as<select id="masquerade-user"></select></label><button class="secondary-button">Start masquerade</button><button class="text-button" type="button" id="exit-masquerade">Exit masquerade</button></form></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Device features</p><h2>App Settings</h2></div></div><button class="secondary-button wide" id="enable-notifications">Enable device notifications</button><button class="secondary-button wide" id="install-app">Install app</button><button class="text-button wide" id="sign-out">Sign out</button></article>
-      </div>
+      <div class="profile-actions" id="profile-actions"></div>
+      <div class="profile-stack" id="profile-stack"></div>
     </section>
 
     <section class="view" id="alerts-view">
@@ -276,12 +274,22 @@
   <dialog id="manage-dialog">
     <form id="manage-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Access setup</p><h2 id="manage-title">Add</h2></div><button class="icon-button" type="button" data-close-manage>x</button></div><div id="manage-fields" class="form-stack"></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-manage>Cancel</button><button class="primary-button">Save</button></div></form>
   </dialog>
+  <dialog id="link-dialog">
+    <form id="link-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Request access</p><h2 id="link-title">Link Record</h2></div><button class="icon-button" type="button" data-close-link>x</button></div><input id="link-type" type="hidden"><label>Record ID<input id="link-record-id" required></label><div class="dialog-actions"><button class="secondary-button" type="button" data-close-link>Cancel</button><button class="primary-button">Submit request</button></div></form>
+  </dialog>
+  <dialog id="invite-dialog">
+    <form id="invite-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Invite</p><h2 id="invite-title">Invite User</h2></div><button class="icon-button" type="button" data-close-invite>x</button></div><input id="invite-type" type="hidden"><input id="invite-record-id" type="hidden"><label>Email address<input id="invite-email" type="email" autocomplete="email" required></label><p class="panel-copy">Existing accounts are linked immediately. New-account email delivery requires a Supabase Edge Function later; this app stores the invitation so it is applied automatically after sign-up.</p><div class="dialog-actions"><button class="secondary-button" type="button" data-close-invite>Cancel</button><button class="primary-button">Invite</button></div></form>
+  </dialog>
+  <dialog id="masquerade-shell-dialog" class="masquerade-dialog">
+    <div class="masquerade-shell-heading"><strong id="masquerade-shell-title">Masquerade</strong><button class="secondary-button" type="button" id="close-masquerade-shell">Exit masquerade</button></div>
+    <iframe id="masquerade-frame" title="Masquerade session"></iframe>
+  </dialog>
   <dialog id="signup-dialog">
-    <form id="signup-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Create account</p><h2>Sign Up</h2></div><button class="icon-button" type="button" data-close-signup>x</button></div><p class="panel-copy">You can log in immediately. Team, household, or organization access is requested later in Account Management.</p><div class="form-stack"><label>Display name<input id="signup-name" required></label><label>Email<input id="signup-username" type="email" autocomplete="email" required></label><label>Password<input id="signup-pin" type="password" minlength="8" autocomplete="new-password" required></label></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-signup>Cancel</button><button class="primary-button">Create account</button></div></form>
+    <form id="signup-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Create account</p><h2>Sign Up</h2></div><button class="icon-button" type="button" data-close-signup>x</button></div><p class="panel-copy">You can log in immediately. Team, household, or organization access is managed from Profile.</p><div class="form-stack"><label>Display name<input id="signup-name" required></label><label>Email<input id="signup-username" type="email" autocomplete="email" required></label><label>Password<input id="signup-pin" type="password" minlength="8" autocomplete="new-password" required></label></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-signup>Cancel</button><button class="primary-button">Create account</button></div></form>
   </dialog>
 
   <div class="toast" id="toast"></div>
-  <nav class="bottom-nav"><button data-view-link="dashboard">Today</button><button data-view-link="schedule">Schedule</button><button data-view-link="alerts">Alerts</button><button data-view-link="progress">Progress</button><button data-view-link="admin">Manage</button></nav>
+  <nav class="bottom-nav"><button data-view-link="dashboard">Today</button><button data-view-link="schedule">Schedule</button><button data-view-link="alerts">Alerts</button><button data-view-link="progress">Progress</button><button data-view-link="admin">Profile</button></nav>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="db.js"></script>
   <script src="app.js"></script>

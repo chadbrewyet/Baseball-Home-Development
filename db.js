@@ -1,9 +1,9 @@
 const ClubhouseDB = (() => {
   const DB_NAME = "clubhouse-baseball";
-  const VERSION = 2;
+  const VERSION = 3;
   const SUPABASE_URL = "https://oczqjazkqmbscffsdvzw.supabase.co";
   const SUPABASE_KEY = "sb_publishable_kyF5JbMqNhT0sqUK7KQtcw_XkMtBxQA";
-  const STORES = ["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","playerData","alerts","decisions","meta","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests"];
+  const STORES = ["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","playerData","alerts","decisions","meta","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations"];
   let db, sb;
 
   const hasRemote = () => Boolean(sb);
@@ -68,6 +68,7 @@ const ClubhouseDB = (() => {
   async function signIn(email,password){return sb.auth.signInWithPassword({email,password})}
   async function signUp(email,password,name){return sb.auth.signUp({email,password,options:{data:{name}}})}
   async function signOut(){return sb?.auth.signOut()}
+  async function updateAuth(changes){return sb?.auth.updateUser(changes)}
   async function currentAuthUser(){return (await sb?.auth.getUser())?.data?.user||null}
   async function authSession(){return (await sb?.auth.getSession())?.data?.session||null}
   async function hasSetup(){return Boolean(await get("meta","setup"))}
@@ -84,8 +85,13 @@ const ClubhouseDB = (() => {
     const hasUsers=(await all("users")).length>0;
     const user={id:authUser.id,authUserId:authUser.id,username:authUser.email,name:name||authUser.email,active:true,status:hasUsers?"pending_association":"active",roles:hasUsers?[]:["Super User"],loginCount:0,lastLoginAt:null};
     await put("users",user);
+    const pendingInvites=(await all("invitations")).filter(i=>i.email?.toLowerCase()===authUser.email?.toLowerCase()&&i.status==="pending");
+    for(const invite of pendingInvites){
+      await put("recordAssociations",{id:id("assoc"),userId:user.id,recordType:invite.recordType,recordId:invite.recordId,role:invite.role||"member",active:true,created:new Date().toISOString(),createdBy:invite.invitedBy});
+      invite.status="accepted";invite.acceptedBy=user.id;invite.acceptedAt=new Date().toISOString();await put("invitations",invite);
+    }
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup};
 })();
