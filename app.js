@@ -196,12 +196,21 @@ const RECORD_TYPES=[
   {type:"coach",label:"Coach",store:"users",role:"Coach"},
   {type:"player",label:"Player",store:"players",role:"Player"}
 ];
-function recordMeta(type){return RECORD_TYPES.find(r=>r.type===type)}
+const ADMIN_RECORD_TYPES=[
+  RECORD_TYPES[0],RECORD_TYPES[1],RECORD_TYPES[2],
+  {type:"director",label:"Director",store:"users",role:"Director"},
+  RECORD_TYPES[3],
+  {type:"parent",label:"Parent",store:"users",role:"Parent"},
+  RECORD_TYPES[4]
+];
+function recordMeta(type){return [...RECORD_TYPES,...ADMIN_RECORD_TYPES].find(r=>r.type===type)}
 function recordsForType(type){
   if(type==="organization")return organizations;
   if(type==="team")return teams;
   if(type==="household")return households;
+  if(type==="director")return users.filter(u=>rolesFor(u).includes("Director")||u.recordType==="director");
   if(type==="coach")return users.filter(u=>rolesFor(u).includes("Coach")||u.recordType==="coach");
+  if(type==="parent")return users.filter(u=>rolesFor(u).includes("Parent")||u.recordType==="parent");
   if(type==="player")return players;
   return [];
 }
@@ -360,7 +369,7 @@ function recordTable(type,items,adminMode=false){const rows=items.map(r=>`<tr><t
 function adminRecordActions(record,type){const canMasq=["coach","player"].includes(type)||["Director","Parent","Player","Coach"].some(role=>rolesFor(record).includes(role));return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record data-record-type="${type}" data-record-id="${esc(record.id)}">Edit</button>${canMasq&&!isSuperUser(record)?`<button class="icon-action" title="Masquerade" data-masquerade-user="${esc(record.userId||record.id)}">Masq</button>`:""}<button class="icon-action danger" title="Delete" data-delete-record data-record-type="${type}" data-record-id="${esc(record.id)}">Delete</button></div>`}
 function profileAssociationSection(meta){const items=visibleRecords(meta.type);if(!items.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Associated records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,items)}</article>`}
 function pendingRequestSection(){const reqs=pendingRequestsForAdmin();if(!reqs.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.map(r=>{const user=users.find(u=>u.id===r.userId),meta=recordMeta(r.recordType),rec=recordsForType(r.recordType).find(x=>x.id===r.recordId);return `<div class="manage-row"><div><strong>${esc(user?.name||"User")}</strong><small>Requests ${esc(meta?.label||r.recordType)} access: ${esc(recordName(rec))} (${esc(r.recordId)})</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join("")}</article>`}
-function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML="";const sections=RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,recordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${sections}${appSettingsSection()}`}
+function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,recordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${sections}${appSettingsSection()}`}
 function renderAdmin(){
   if(!currentUser)return;
   document.querySelector("#profile-actions").innerHTML=isSuperUser()?"":`<button class="primary-button" type="button" id="add-new-button">Add New</button><button class="secondary-button" type="button" id="link-record-button">Link</button>`;
@@ -591,6 +600,7 @@ async function deleteRecord(type,recordId){
   for(let i=1;i<=3;i++)if(!confirm(`Warning ${i} of 3: deleting ${recordName(record)} removes associated access and cannot be undone. Continue?`))return;
   await ClubhouseDB.remove(meta.store,recordId);
   for(const assoc of recordAssociations.filter(a=>a.recordType===type&&a.recordId===recordId))await ClubhouseDB.remove("recordAssociations",assoc.id);
+  if(["director","coach","parent"].includes(type))for(const assoc of recordAssociations.filter(a=>a.userId===recordId))await ClubhouseDB.remove("recordAssociations",assoc.id);
   for(const req of accessRequests.filter(r=>r.recordType===type&&r.recordId===recordId))await ClubhouseDB.remove("accessRequests",req.id);
 }
 async function approveRecordRequest(id){
