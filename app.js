@@ -261,8 +261,7 @@ function rolesFor(user=currentUser){
     ...organizationRoles.filter(r=>r.userId===user?.id&&r.active!==false).map(()=>"Director"),
     ...teamCoachRoles.filter(r=>r.userId===user?.id&&r.active!==false).map(()=>"Coach"),
     ...householdMemberships.filter(r=>r.userId===user?.id&&r.role==="parent"&&r.active!==false).map(()=>"Parent"),
-    ...players.filter(p=>p.userId===user?.id&&p.active!==false).map(()=>"Player"),
-    ...recordAssociations.filter(r=>r.userId===user?.id&&r.active!==false).map(r=>recordMeta(r.recordType)?.role).filter(Boolean)
+    ...players.filter(p=>p.userId===user?.id&&p.active!==false).map(()=>"Player")
   ];
   return [...new Set([...base,...assigned])].sort((a,b)=>ROLE_ORDER.indexOf(b)-ROLE_ORDER.indexOf(a));
 }
