@@ -29,7 +29,7 @@ Open `http://localhost:4173`. The app stores local profiles and records in Index
 - Local Super User, Director, Coach, Parent, and Player profiles using name + PIN
 - Login tracking with last-login timestamps and local login counts
 - Seeded local Super User login for fresh installs
-- Pending public sign-up requests with admin approval before association access
+- Public sign-up creates a login immediately; new users see only Account Management until a higher-level user approves their organization, team, household, or player association
 - Organization, team coach role, household, player-team, player-tag, and access-request records shaped for a future Supabase migration
 - Super User masquerade support for testing non-Super User functionality
 - Multiple teams, priority-team membership, team events, player overrides, and conflict decisions
