@@ -38,7 +38,8 @@ Open `http://localhost:4173`. The app uses Supabase Auth and Supabase-backed rec
 - First Supabase-authenticated profile becomes the initial test Super User when the records table is empty
 - Public sign-up creates a login immediately without choosing a role; new users land on Profile, where they can create records or request organization, team, household, coach, or player associations
 - Profile page with personal information, pending association requests, Add New and Link record workflows, associated-record tables, and app settings
-- Super User Admin view with global organization, team, household, director, coach, parent, and player record tables plus masquerade testing
+- Super User Admin view with global Super User, unassociated user, organization, team, household, director, coach, parent, and player record tables plus masquerade testing
+- Super Users can promote existing users or pre-authorize an email to become a Super User after sign-up
 - Organization, team coach role, household, player-team, player-tag, and access-request records shaped for a future Supabase migration
 - Super User masquerade support for testing non-Super User functionality
 - Multiple teams, priority-team membership, team events, player overrides, and conflict decisions
