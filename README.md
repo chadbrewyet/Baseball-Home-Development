@@ -34,4 +34,4 @@ Open `http://localhost:4173`. The app stores local profiles and records in Index
 
 ## Local role model
 
-Permissions are ordered as Super User, Director, Coach, Parent, Player. Super User has full local access. Directors manage the organization, Coaches manage assigned teams, Parents manage linked household players, and Players manage only their own check-ins and training records.
+Permissions are scoped as Super User, Director, Coach, Parent, Player. Super User has full local access. Directors manage the organization, Coaches manage assigned teams, Parents manage linked household players, and Players manage only their own check-ins and training records. UI controls and form handlers both check these scopes.
