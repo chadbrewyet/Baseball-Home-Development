@@ -94,8 +94,9 @@ const ClubhouseDB = (() => {
       const team=(await get("teams",invite.recordId));
       if(team?.organizationId)await ensureRecordAssociation(user.id,"organization",team.organizationId,role==="admin"?"admin":"member",invite.invitedBy);
     }else if(invite.recordType==="household"){
-      const existingMember=(await all("householdMemberships")).find(m=>m.householdId===invite.recordId&&m.userId===user.id);
-      await put("householdMemberships",{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
+      const player=(await all("players")).find(p=>p.userId===user.id);
+      const existingMember=(await all("householdMemberships")).find(m=>m.householdId===invite.recordId&&((player&&m.playerId===player.id)||m.userId===user.id));
+      await put("householdMemberships",player?{id:existingMember?.id||id("hh"),householdId:invite.recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
     }else if(invite.recordType==="organization"&&role==="admin"){
       const existingRole=(await all("organizationRoles")).find(r=>r.userId===user.id&&r.organizationId===invite.recordId);
       await put("organizationRoles",{id:existingRole?.id||id("orgRole"),userId:user.id,organizationId:invite.recordId,role:"director",active:true});

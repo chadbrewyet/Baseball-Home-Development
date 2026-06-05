@@ -423,6 +423,20 @@ async function refreshRecords(){
   teamRoles=teamCoachRoles.map(r=>({id:r.id,userId:r.userId,teamId:r.teamId,coach:true,scheduler:true,coachType:r.coachType,specializations:r.specializations,active:r.active}));
 }
 async function migrateAssociations(oldMemberships=[],oldTeamRoles=[]){
+  const now=()=>new Date().toISOString();
+  const addAssoc=async (userId,type,recordId,role="member",createdBy=userId)=>{
+    if(!userId||!type||!recordId)return;
+    const existing=recordAssociations.find(a=>a.userId===userId&&a.recordType===type&&a.recordId===recordId);
+    const item={id:existing?.id||ClubhouseDB.id("assoc"),userId,recordType:type,recordId,role:existing?.role==="admin"?"admin":role,active:true,created:existing?.created||now(),createdBy:existing?.createdBy||createdBy};
+    await ClubhouseDB.put("recordAssociations",item);
+    if(!existing)recordAssociations.push(item);
+  };
+  const addHouseholdMember=async item=>{
+    const existing=householdMemberships.find(m=>m.householdId===item.householdId&&((item.userId&&m.userId===item.userId)||(item.playerId&&m.playerId===item.playerId)));
+    const next={id:existing?.id||ClubhouseDB.id("hh"),...item,role:item.role||existing?.role||"member",active:true};
+    await ClubhouseDB.put("householdMemberships",next);
+    if(!existing)householdMemberships.push(next);
+  };
   if(!organizations.length){
     const setup=await ClubhouseDB.get("meta","setup"),orgId=setup?.defaultOrganizationId||ClubhouseDB.id("org");
     await ClubhouseDB.put("organizations",{id:orgId,name:"Default Organization",settings:{directorApprovalRequiredForCoachPlans:false},equipment:[],active:true,created:new Date().toISOString()});
@@ -448,23 +462,58 @@ async function migrateAssociations(oldMemberships=[],oldTeamRoles=[]){
     if(roles.includes("Director")&&!organizationRoles.some(r=>r.userId===user.id))await ClubhouseDB.put("organizationRoles",{id:ClubhouseDB.id("orgRole"),userId:user.id,organizationId:orgId,role:"director",active:true});
   }
   for(const r of organizationRoles.filter(r=>r.active!==false)){
-    if(!recordAssociations.some(a=>a.userId===r.userId&&a.recordType==="organization"&&a.recordId===r.organizationId))await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:r.userId,recordType:"organization",recordId:r.organizationId,role:"admin",active:true,created:new Date().toISOString(),createdBy:r.userId});
+    await addAssoc(r.userId,"organization",r.organizationId,"admin");
   }
   for(const r of teamCoachRoles.filter(r=>r.active!==false)){
-    if(!recordAssociations.some(a=>a.userId===r.userId&&a.recordType==="team"&&a.recordId===r.teamId))await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:r.userId,recordType:"team",recordId:r.teamId,role:r.coachType==="head"?"admin":"member",active:true,created:new Date().toISOString(),createdBy:r.userId});
+    await addAssoc(r.userId,"team",r.teamId,r.coachType==="head"?"admin":"member");
+    const team=teams.find(t=>t.id===r.teamId);
+    if(team?.organizationId)await addAssoc(r.userId,"organization",team.organizationId,r.coachType==="head"?"admin":"member");
   }
   for(const access of accessRecords.filter(a=>a.permission==="manage")){
     const parent=users.find(u=>u.id===access.userId);if(!parent)continue;
     let household=households.find(h=>h.ownerUserId===parent.id);
     if(!household){household={id:ClubhouseDB.id("household"),name:`${parent.name}'s Household`,ownerUserId:parent.id,equipment:[],active:true};await ClubhouseDB.put("households",household);households.push(household)}
-    if(!householdMemberships.some(m=>m.householdId===household.id&&m.userId===parent.id)){const item={id:ClubhouseDB.id("hh"),householdId:household.id,userId:parent.id,role:"parent",active:true};await ClubhouseDB.put("householdMemberships",item);householdMemberships.push(item)}
-    if(!householdMemberships.some(m=>m.householdId===household.id&&m.playerId===access.playerId)){const item={id:ClubhouseDB.id("hh"),householdId:household.id,playerId:access.playerId,role:"player",active:true};await ClubhouseDB.put("householdMemberships",item);householdMemberships.push(item)}
+    await addHouseholdMember({householdId:household.id,userId:parent.id,role:"parent"});
+    await addHouseholdMember({householdId:household.id,playerId:access.playerId,role:"player"});
   }
   for(const m of householdMemberships.filter(m=>m.active!==false&&m.userId)){
-    if(!recordAssociations.some(a=>a.userId===m.userId&&a.recordType==="household"&&a.recordId===m.householdId))await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:m.userId,recordType:"household",recordId:m.householdId,role:m.role==="parent"?"admin":"member",active:true,created:new Date().toISOString(),createdBy:m.userId});
+    await addAssoc(m.userId,"household",m.householdId,m.role==="parent"?"admin":"member");
   }
   for(const p of players.filter(p=>p.userId)){
-    if(!recordAssociations.some(a=>a.userId===p.userId&&a.recordType==="player"&&a.recordId===p.id))await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:p.userId,recordType:"player",recordId:p.id,role:"admin",active:true,created:new Date().toISOString(),createdBy:p.userId});
+    await addAssoc(p.userId,"player",p.id,"admin");
+  }
+  for(const m of playerTeamMemberships.filter(m=>m.active!==false)){
+    const player=players.find(p=>p.id===m.playerId),team=teams.find(t=>t.id===m.teamId);
+    if(player?.userId){
+      await addAssoc(player.userId,"team",m.teamId,"member");
+      if(team?.organizationId)await addAssoc(player.userId,"organization",team.organizationId,"member");
+    }
+  }
+  for(const assoc of recordAssociations.filter(a=>a.recordType==="team"&&a.active!==false)){
+    const team=teams.find(t=>t.id===assoc.recordId);
+    if(team?.organizationId)await addAssoc(assoc.userId,"organization",team.organizationId,assoc.role==="admin"?"admin":"member",assoc.createdBy);
+  }
+  for(const assoc of recordAssociations.filter(a=>a.recordType==="household"&&a.active!==false)){
+    const player=players.find(p=>p.userId===assoc.userId);
+    if(player)await addHouseholdMember({householdId:assoc.recordId,playerId:player.id,role:"player"});
+    else await addHouseholdMember({householdId:assoc.recordId,userId:assoc.userId,role:"parent"});
+  }
+  for(const household of households.filter(h=>h.active!==false)){
+    const members=householdMemberships.filter(m=>m.householdId===household.id&&m.active!==false);
+    const parentUserIds=members.filter(m=>m.userId&&m.role==="parent").map(m=>m.userId);
+    const householdPlayers=members.filter(m=>m.playerId).map(m=>players.find(p=>p.id===m.playerId)).filter(Boolean);
+    const playerUserIds=householdPlayers.map(p=>p.userId).filter(Boolean);
+    const householdUserIds=[...new Set([...parentUserIds,...playerUserIds])];
+    for(const userId of householdUserIds){
+      await addAssoc(userId,"household",household.id,parentUserIds.includes(userId)?"admin":"member",household.ownerUserId||userId);
+      for(const parentId of parentUserIds.filter(id=>id!==userId))await addAssoc(userId,"parent",parentId,"member",household.ownerUserId||userId);
+      for(const player of householdPlayers)await addAssoc(userId,"player",player.id,player.userId===userId?"admin":"member",household.ownerUserId||userId);
+    }
+    for(const parentId of parentUserIds)for(const player of householdPlayers){
+      if(!accessRecords.some(a=>a.userId===parentId&&a.playerId===player.id&&a.permission==="manage")){
+        await ClubhouseDB.put("userPlayerAccess",{id:ClubhouseDB.id("access"),userId:parentId,playerId:player.id,permission:"manage",active:true});
+      }
+    }
   }
 }
 async function selectPlayer(id){
@@ -656,8 +705,9 @@ async function grantRecordAccess(userId,type,recordId,role="member"){
     const team=teams.find(t=>t.id===recordId);
     if(team?.organizationId)await ensureRecordAssociation(userId,"organization",team.organizationId,role==="admin"?"admin":"member");
   }else if(type==="household"){
-    const existingMember=householdMemberships.find(m=>m.householdId===recordId&&m.userId===userId);
-    await ClubhouseDB.put("householdMemberships",{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,userId,role:"parent",active:true});
+    const player=players.find(p=>p.userId===userId);
+    const existingMember=householdMemberships.find(m=>m.householdId===recordId&&((player&&m.playerId===player.id)||m.userId===userId));
+    await ClubhouseDB.put("householdMemberships",player?{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,userId,role:"parent",active:true});
   }else if(type==="organization"&&role==="admin"){
     const existingRole=organizationRoles.find(r=>r.userId===userId&&r.organizationId===recordId);
     await ClubhouseDB.put("organizationRoles",{id:existingRole?.id||ClubhouseDB.id("orgRole"),userId,organizationId:recordId,role:"director",active:true});
