@@ -589,7 +589,7 @@ async function createAssociatedRecord(type,name,email=""){
     await ClubhouseDB.put("players",{id,name,userId:id,active:true,created:now,createdBy:currentUser.id});
     await ClubhouseDB.put("playerData",{id,data:structuredClone(defaultState)});
   }
-  await ClubhouseDB.put("recordAssociations",{id:ClubhouseDB.id("assoc"),userId:currentUser.id,recordType:type,recordId:id,role:"admin",active:true,created:now,createdBy:currentUser.id});
+  await grantRecordAccess(currentUser.id,type,id,"admin");
 }
 async function promoteToSuperUser(userId){
   if(!isSuperUser(actualUser)||isMasquerading()){alert("Only a non-masquerading Super User can add another Super User.");return}
@@ -646,12 +646,30 @@ async function inviteToRecord(type,recordId,email){
   return "pending";
 }
 async function grantRecordAccess(userId,type,recordId,role="member"){
-  const existing=recordAssociations.find(a=>a.userId===userId&&a.recordType===type&&a.recordId===recordId);
-  await ClubhouseDB.put("recordAssociations",{id:existing?.id||ClubhouseDB.id("assoc"),userId,recordType:type,recordId,role,active:true,created:existing?.created||new Date().toISOString(),createdBy:existing?.createdBy||currentUser.id});
+  await ensureRecordAssociation(userId,type,recordId,role);
   if(type==="team"){
     const coachRole=teamCoachRoles.find(r=>r.userId===userId&&r.teamId===recordId);
-    await ClubhouseDB.put("teamCoachRoles",{id:coachRole?.id||ClubhouseDB.id("coachRole"),userId,teamId:recordId,coachType:coachRole?.coachType||"assistant",permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:false,manageAssistants:false},specializations:coachRole?.specializations||["All"],active:true});
+    const coachType=coachRole?.coachType||(role==="admin"&&!teamCoachRoles.some(r=>r.teamId===recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
+    await ClubhouseDB.put("teamCoachRoles",{id:coachRole?.id||ClubhouseDB.id("coachRole"),userId,teamId:recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
+    const player=players.find(p=>p.userId===userId);
+    if(player&&!playerTeamMemberships.some(m=>m.playerId===player.id&&m.teamId===recordId&&m.active!==false))await ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),playerId:player.id,teamId:recordId,active:true,priority:playerTeamMemberships.some(m=>m.playerId===player.id)?2:1});
+    const team=teams.find(t=>t.id===recordId);
+    if(team?.organizationId)await ensureRecordAssociation(userId,"organization",team.organizationId,role==="admin"?"admin":"member");
+  }else if(type==="household"){
+    const existingMember=householdMemberships.find(m=>m.householdId===recordId&&m.userId===userId);
+    await ClubhouseDB.put("householdMemberships",{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,userId,role:"parent",active:true});
+  }else if(type==="organization"&&role==="admin"){
+    const existingRole=organizationRoles.find(r=>r.userId===userId&&r.organizationId===recordId);
+    await ClubhouseDB.put("organizationRoles",{id:existingRole?.id||ClubhouseDB.id("orgRole"),userId,organizationId:recordId,role:"director",active:true});
+  }else if(type==="player"){
+    const player=players.find(p=>p.id===recordId);
+    if(player&&!player.userId)await ClubhouseDB.put("players",{...player,userId});
   }
+}
+async function ensureRecordAssociation(userId,type,recordId,role="member"){
+  const existing=recordAssociations.find(a=>a.userId===userId&&a.recordType===type&&a.recordId===recordId);
+  const next={id:existing?.id||ClubhouseDB.id("assoc"),userId,recordType:type,recordId,role:existing?.role==="admin"?"admin":role,active:true,created:existing?.created||new Date().toISOString(),createdBy:existing?.createdBy||currentUser.id};
+  await ClubhouseDB.put("recordAssociations",next);
 }
 function openAddMenu(anchor){
   const existing=anchor.nextElementSibling;if(existing?.classList.contains("floating-menu")){existing.remove();return}
@@ -694,7 +712,7 @@ document.addEventListener("click",e=>{
   const deleteEvent=e.target.closest("[data-delete-event]");if(deleteEvent&&confirm("Delete this event and all recurring occurrences?"))ClubhouseDB.remove("events",deleteEvent.dataset.deleteEvent).then(async()=>{await refreshRecords();renderAll()});
   const conflict=e.target.closest("[data-conflict-action]");if(conflict){ClubhouseDB.put("decisions",{id:ClubhouseDB.id("decision"),playerId:currentPlayer.id,eventId:conflict.dataset.conflictEvent,date:conflict.dataset.conflictDate,action:conflict.dataset.conflictAction,created:new Date().toISOString()}).then(async()=>{await refreshRecords();renderAll()});showToast(`Conflict marked: ${conflict.dataset.conflictAction}`)}
   const pain=e.target.closest("[data-pain-decision]");if(pain){const item=alerts.find(a=>a.id===pain.dataset.alertId);item.status=pain.dataset.painDecision==="allow"?"allowed":"removed";item.read=true;if(item.status==="removed"){state.throwingRemovedDate=todayISO();saveState()}ClubhouseDB.put("alerts",item);ClubhouseDB.put("decisions",{id:ClubhouseDB.id("decision"),alertId:item.id,action:item.status,userId:currentUser.id,created:new Date().toISOString()});renderAll()}
-  const roster=e.target.closest("[data-roster-team]");if(roster){if(!currentPlayer){alert("Select a player before changing roster membership.");return}const existing=memberships.find(m=>m.teamId===roster.dataset.rosterTeam&&m.playerId===currentPlayer.id);(existing?ClubhouseDB.remove("playerTeamMemberships",existing.id):ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),teamId:roster.dataset.rosterTeam,playerId:currentPlayer.id,active:true,priority:memberships.some(m=>m.playerId===currentPlayer.id)?2:1})).then(async()=>{await refreshRecords();renderAll()})}
+  const roster=e.target.closest("[data-roster-team]");if(roster){if(!currentPlayer){alert("Select a player before changing roster membership.");return}const existing=memberships.find(m=>m.teamId===roster.dataset.rosterTeam&&m.playerId===currentPlayer.id);(existing?ClubhouseDB.remove("playerTeamMemberships",existing.id):(currentPlayer.userId?grantRecordAccess(currentPlayer.userId,"team",roster.dataset.rosterTeam,"member"):ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),teamId:roster.dataset.rosterTeam,playerId:currentPlayer.id,active:true,priority:memberships.some(m=>m.playerId===currentPlayer.id)?2:1}))).then(async()=>{await refreshRecords();renderAll()})}
   const priority=e.target.closest("[data-priority-team]");if(priority){if(!currentPlayer){alert("Select a player before changing priority team.");return}currentPlayer.priorityTeamId=priority.dataset.priorityTeam;ClubhouseDB.put("players",currentPlayer).then(async()=>{await refreshRecords();renderAll()})}
   const reset=e.target.closest("[data-reset-pin]");if(reset){if(!canManageSecurity()){alert("Security settings are disabled while masquerading.");return}const pin=prompt("Enter the new local PIN (4+ characters):");if(pin)ClubhouseDB.hashPin(pin).then(async h=>{const user=users.find(u=>u.id===reset.dataset.resetPin);Object.assign(user,{pinSalt:h.salt,pinHash:h.hash});await ClubhouseDB.put("users",user);showToast("PIN reset")})}
   const approve=e.target.closest("[data-approve-request]");if(approve){const req=accessRequests.find(r=>r.id===approve.dataset.approveRequest);(req?.recordType?approveRecordRequest(req.id):approveRequest(req.id)).then(async()=>{await refreshRecords();renderAll();showToast("Request approved")})}

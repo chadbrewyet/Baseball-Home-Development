@@ -78,6 +78,32 @@ const ClubhouseDB = (() => {
     await put("organizations",{id:orgId,name:"Default Organization",settings:{directorApprovalRequiredForCoachPlans:false},equipment:[],active:true,created:new Date().toISOString()});
     await put("meta",{id:"setup",defaultOrganizationId:orgId,created:new Date().toISOString(),version:3});
   }
+  async function ensureRecordAssociation(userId,type,recordId,role="member",createdBy=userId){
+    const existing=(await all("recordAssociations")).find(a=>a.userId===userId&&a.recordType===type&&a.recordId===recordId);
+    await put("recordAssociations",{id:existing?.id||id("assoc"),userId,recordType:type,recordId,role:existing?.role==="admin"?"admin":role,active:true,created:existing?.created||new Date().toISOString(),createdBy:existing?.createdBy||createdBy});
+  }
+  async function grantInviteAccess(user,invite){
+    const role=invite.role||"member";
+    await ensureRecordAssociation(user.id,invite.recordType,invite.recordId,role,invite.invitedBy);
+    if(invite.recordType==="team"){
+      const teamRoles=await all("teamCoachRoles"),coachRole=teamRoles.find(r=>r.userId===user.id&&r.teamId===invite.recordId);
+      const coachType=coachRole?.coachType||(role==="admin"&&!teamRoles.some(r=>r.teamId===invite.recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
+      await put("teamCoachRoles",{id:coachRole?.id||id("coachRole"),userId:user.id,teamId:invite.recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
+      const player=(await all("players")).find(p=>p.userId===user.id);
+      if(player&&!(await all("playerTeamMemberships")).some(m=>m.playerId===player.id&&m.teamId===invite.recordId&&m.active!==false))await put("playerTeamMemberships",{id:id("membership"),playerId:player.id,teamId:invite.recordId,active:true,priority:(await all("playerTeamMemberships")).some(m=>m.playerId===player.id)?2:1});
+      const team=(await get("teams",invite.recordId));
+      if(team?.organizationId)await ensureRecordAssociation(user.id,"organization",team.organizationId,role==="admin"?"admin":"member",invite.invitedBy);
+    }else if(invite.recordType==="household"){
+      const existingMember=(await all("householdMemberships")).find(m=>m.householdId===invite.recordId&&m.userId===user.id);
+      await put("householdMemberships",{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
+    }else if(invite.recordType==="organization"&&role==="admin"){
+      const existingRole=(await all("organizationRoles")).find(r=>r.userId===user.id&&r.organizationId===invite.recordId);
+      await put("organizationRoles",{id:existingRole?.id||id("orgRole"),userId:user.id,organizationId:invite.recordId,role:"director",active:true});
+    }else if(invite.recordType==="player"){
+      const player=await get("players",invite.recordId);
+      if(player&&!player.userId)await put("players",{...player,userId:user.id});
+    }
+  }
   async function ensureAuthProfile(authUser,name=authUser?.user_metadata?.name){
     if(!authUser)return null;
     const existing=await get("users",authUser.id);
@@ -89,10 +115,7 @@ const ClubhouseDB = (() => {
     for(const invite of pendingInvites){
       if(invite.recordType==="superUser"){
         user.roles=["Super User"];user.status="active";await put("users",user);
-      }else{
-        await put("recordAssociations",{id:id("assoc"),userId:user.id,recordType:invite.recordType,recordId:invite.recordId,role:invite.role||"member",active:true,created:new Date().toISOString(),createdBy:invite.invitedBy});
-        if(invite.recordType==="team")await put("teamCoachRoles",{id:id("coachRole"),userId:user.id,teamId:invite.recordId,coachType:"assistant",permissions:{manageTeam:true,managePlans:true,manageParents:false,manageAssistants:false},specializations:["All"],active:true});
-      }
+      }else await grantInviteAccess(user,invite);
       invite.status="accepted";invite.acceptedBy=user.id;invite.acceptedAt=new Date().toISOString();await put("invitations",invite);
     }
     return user;
