@@ -277,11 +277,12 @@
     <form id="manage-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Access setup</p><h2 id="manage-title">Add</h2></div><button class="icon-button" type="button" data-close-manage>x</button></div><div id="manage-fields" class="form-stack"></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-manage>Cancel</button><button class="primary-button">Save</button></div></form>
   </dialog>
   <dialog id="signup-dialog">
-    <form id="signup-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Create account</p><h2>Sign Up</h2></div><button class="icon-button" type="button" data-close-signup>x</button></div><p class="panel-copy">You can log in immediately. Team, household, or organization access is requested later in Account Management.</p><div class="form-stack"><label>Display name<input id="signup-name" required></label><label>Username<input id="signup-username" autocomplete="username" required></label><label>PIN<input id="signup-pin" type="password" inputmode="numeric" minlength="4" autocomplete="new-password" required></label></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-signup>Cancel</button><button class="primary-button">Create account</button></div></form>
+    <form id="signup-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Create account</p><h2>Sign Up</h2></div><button class="icon-button" type="button" data-close-signup>x</button></div><p class="panel-copy">You can log in immediately. Team, household, or organization access is requested later in Account Management.</p><div class="form-stack"><label>Display name<input id="signup-name" required></label><label>Email<input id="signup-username" type="email" autocomplete="email" required></label><label>Password<input id="signup-pin" type="password" minlength="8" autocomplete="new-password" required></label></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-signup>Cancel</button><button class="primary-button">Create account</button></div></form>
   </dialog>
 
   <div class="toast" id="toast"></div>
   <nav class="bottom-nav"><button data-view-link="dashboard">Today</button><button data-view-link="schedule">Schedule</button><button data-view-link="alerts">Alerts</button><button data-view-link="progress">Progress</button><button data-view-link="admin">Manage</button></nav>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="db.js"></script>
   <script src="app.js"></script>
 </body>

@@ -10,7 +10,14 @@ Serve the folder from `localhost` or HTTPS, then open it in a browser. For examp
 python -m http.server 4173
 ```
 
-Open `http://localhost:4173`. The app stores local profiles and records in IndexedDB. The active profile stays signed in on that browser until explicit sign-out. Local profiles do not synchronize between devices.
+Open `http://localhost:4173`. The app uses Supabase Auth and Supabase-backed records when configured, with IndexedDB as a local fallback.
+
+## Supabase setup
+
+1. In Supabase SQL Editor, run `supabase-schema.sql`.
+2. In Authentication settings, enable Email/Password signups.
+3. Serve the app from localhost or HTTPS and sign up with your first test account.
+4. The first authenticated profile created in an empty Supabase records table becomes the initial Super User.
 
 ## Current features
 
@@ -26,9 +33,9 @@ Open `http://localhost:4173`. The app stores local profiles and records in Index
 - Equipment Shed with missing-equipment alerts
 - Drill completion and benchmark-result tracking
 - Dashboard and progress summaries
-- Local Super User, Director, Coach, Parent, and Player profiles using name + PIN
+- Supabase email/password auth with local role and association records
 - Login tracking with last-login timestamps and local login counts
-- Seeded local Super User login for fresh installs
+- First Supabase-authenticated profile becomes the initial test Super User when the records table is empty
 - Public sign-up creates a login immediately without choosing a role; new users see only Account Management until they request and receive an organization, team, household, or player association
 - Organization, team coach role, household, player-team, player-tag, and access-request records shaped for a future Supabase migration
 - Super User masquerade support for testing non-Super User functionality
@@ -38,4 +45,4 @@ Open `http://localhost:4173`. The app stores local profiles and records in Index
 
 ## Local role model
 
-Permissions are scoped as Super User, Director, Coach, Parent, Player. Fresh installs seed username `Super User` with PIN `244466666888888888`. Super Users manage users, roles, approvals, and masquerade testing. Directors manage assigned organizations. Head and Assistant Coach access is stored per team, with one active Head Coach per team. Parents manage households and household equipment. Players manage only their own check-ins and logs. UI controls and form handlers both check these scopes.
+Permissions are scoped as Super User, Director, Coach, Parent, Player. The first Supabase-authenticated profile in an empty records table becomes the initial Super User. Super Users manage users, roles, approvals, and masquerade testing. Directors manage assigned organizations. Head and Assistant Coach access is stored per team, with one active Head Coach per team. Parents manage households and household equipment. Players manage only their own check-ins and logs. UI controls and form handlers both check these scopes.
