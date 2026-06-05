@@ -3,8 +3,10 @@ const STORAGE_KEY = "clubhouse-baseball-v3";
 const OLD_STORAGE_KEY = "clubhouse-baseball-v2";
 const ACTIVE_USER_KEY = "clubhouse-active-user";
 const ACTIVE_PLAYER_KEY = "clubhouse-active-player";
+const EFFECTIVE_USER_KEY = "clubhouse-effective-user";
 const ROLE_ORDER = ["Player", "Parent", "Coach", "Director", "Super User"];
 const ROLE_SCOPE = {"Super User":"All access",Director:"Organization",Coach:"Team",Parent:"Household",Player:"Player"};
+const SPECIALIZATIONS = ["All","pitching","hitting","infielding","outfielding","catching"];
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const D = (id, category, name, dose, purpose, cue, equipment, options = {}) => ({
@@ -101,7 +103,8 @@ const defaultState = {
 };
 
 let state = loadState();
-let currentUser=null,currentPlayer=null,users=[],players=[],teams=[],memberships=[],accessRecords=[],teamRoles=[],events=[],alerts=[],decisions=[];
+let actualUser=null,currentUser=null,currentPlayer=null,users=[],players=[],teams=[],memberships=[],accessRecords=[],teamRoles=[],events=[],alerts=[],decisions=[];
+let organizations=[],households=[],organizationRoles=[],teamCoachRoles=[],householdMemberships=[],playerTeamMemberships=[],playerTags=[],accessRequests=[];
 let deferredInstallPrompt=null;
 let libraryFilter = "All";
 
@@ -167,7 +170,7 @@ function renderSidebar(){const p=Math.min(100,Math.round(state.logs.length/24*10
 function todaysWorkout(){const day=DAYS[new Date().getDay()],phase=state.currentPhase;let choices=state.workouts.filter(w=>w.phase===phase&&w.day===day);if(phase==="In Season"&&!eligibleToThrow())choices=choices.filter(w=>/Recovery|No-Throw/.test(w.name));return choices[0]||state.workouts.find(w=>w.phase===phase)}
 function renderDashboard(){
   const w=todaysWorkout(), drills=w.drillIds.map(drillFor);
-  document.querySelector("#today-card").innerHTML=`<p class="eyebrow">${state.currentPhase} · ${w.dayType}</p><h2>${w.name}</h2><p class="meta">${w.duration} min · ${w.intensity} · ${drills.length} items</p><div class="drill-preview">${drills.slice(0,3).map(d=>`<span>${d.name}</span>`).join("")}</div><button class="primary-button" data-start-session="${w.id}">Start session</button>${isAdmin()?` <button class="secondary-button" data-build-variation="${w.id}">Build variation</button>`:""}`;
+  document.querySelector("#today-card").innerHTML=`<p class="eyebrow">${state.currentPhase} · ${w.dayType}</p><h2>${w.name}</h2><p class="meta">${w.duration} min · ${w.intensity} · ${drills.length} items</p><div class="drill-preview">${drills.slice(0,3).map(d=>`<span>${d.name}</span>`).join("")}</div><button class="primary-button" data-start-session="${w.id}">Start session</button>${canBuildTraining()?` <button class="secondary-button" data-build-variation="${w.id}">Build variation</button>`:""}`;
   const p=latestPitch(),alert=document.querySelector("#workload-alert");
   if(p){const rest=restDays(p.pitches),next=addDays(p.date,rest),clear=todayISO()>=next;alert.innerHTML=`<div class="workload-alert ${clear?"clear":""}"><div><strong>${clear?"Throwing rest complete":"Throwing restricted"}</strong>${p.pitches} pitches on ${fmtDate(p.date)} · ${rest} rest day(s) required${p.pitches>=41?" · No catching afterward that day":""}</div><button class="text-button" data-view-link="pitch">Pitch log</button></div>`}else alert.innerHTML=`<div class="workload-alert clear"><div><strong>No recent pitch count</strong>Log throwing outings to activate rest guidance.</div><button class="text-button" data-view-link="pitch">Log pitches</button></div>`;
   const mins=state.logs.reduce((s,l)=>s+Number(l.duration),0),avg=state.logs.length?(state.logs.reduce((s,l)=>s+Number(l.rpe),0)/state.logs.length).toFixed(1):"—";
@@ -185,7 +188,7 @@ function feelingSvg(value,invert=false){const good=invert?11-value:value,mouth=g
 function renderReadiness(){Object.entries(FEELINGS).forEach(([key,choices])=>{document.querySelector(`#${key}-options`).innerHTML=choices.map(([label,value])=>`<button type="button" class="feeling-choice ${state.readiness[key]===value?"selected":""}" data-feeling="${key}" data-value="${value}">${feelingSvg(value,key==="soreness")}<span>${label}</span></button>`).join("")});document.querySelector("#readiness-detail-wrap").hidden=state.readiness.arm>1&&state.readiness.soreness<7;document.querySelector("#readiness-score").textContent=((+state.readiness.energy + +state.readiness.arm + (11- +state.readiness.soreness))/3).toFixed(1)}
 function renderPlan(){
   const ws=state.workouts.filter(w=>w.phase===state.currentPhase);
-  document.querySelector("#plan-list").innerHTML=ws.map(w=>{const vars=state.variations.filter(v=>v.blueprintId===w.id);return `<article class="workout-card"><div class="workout-day"><small>${w.dayType}</small><strong>${w.day}</strong></div><div><h3>${w.name}</h3><p><span class="tag">${w.phase}</span><span class="tag">${w.intensity}</span>${w.slots.join(" · ")}</p>${vars.map(v=>`<span class="variant-row"><button class="variant-chip" data-start-session="${v.id}">${v.name}</button>${isAdmin()?`<button class="variant-action" data-edit-variation="${v.id}">Edit</button><button class="variant-action" data-delete-variation="${v.id}">Delete</button>`:""}</span>`).join("")}</div><div class="card-actions"><button data-start-session="${w.id}">Start</button>${isAdmin()?`<button data-build-variation="${w.id}">Variation</button>`:""}</div></article>`}).join("");
+  document.querySelector("#plan-list").innerHTML=ws.map(w=>{const vars=state.variations.filter(v=>v.blueprintId===w.id);return `<article class="workout-card"><div class="workout-day"><small>${w.dayType}</small><strong>${w.day}</strong></div><div><h3>${w.name}</h3><p><span class="tag">${w.phase}</span><span class="tag">${w.intensity}</span>${w.slots.join(" · ")}</p>${vars.map(v=>`<span class="variant-row"><button class="variant-chip" data-start-session="${v.id}">${v.name}</button>${canBuildTraining()?`<button class="variant-action" data-edit-variation="${v.id}">Edit</button><button class="variant-action" data-delete-variation="${v.id}">Delete</button>`:""}</span>`).join("")}</div><div class="card-actions"><button data-start-session="${w.id}">Start</button>${canBuildTraining()?`<button data-build-variation="${w.id}">Variation</button>`:""}</div></article>`}).join("");
 }
 function allSessions(){return [...state.workouts,...state.variations.map(v=>sessionFor(v.id))]}
 function renderLog(){
@@ -209,44 +212,64 @@ function normalizeRoles(user){
   const raw=user?.roles||[];
   const roles=raw.map(r=>r==="Owner"?"Super User":r==="Scheduler"?"Director":r).filter(r=>ROLE_ORDER.includes(r));
   if(user?.owner&&!roles.includes("Super User"))roles.push("Super User");
-  return [...new Set(roles.length?roles:["Player"])];
+  return [...new Set(roles)];
 }
 function rolesFor(user=currentUser){
   const base=normalizeRoles(user);
-  const assigned=teamRoles.filter(r=>r.userId===user?.id&&r.coach).map(()=>"Coach");
+  const assigned=[
+    ...organizationRoles.filter(r=>r.userId===user?.id&&r.active!==false).map(()=>"Director"),
+    ...teamCoachRoles.filter(r=>r.userId===user?.id&&r.active!==false).map(()=>"Coach"),
+    ...householdMemberships.filter(r=>r.userId===user?.id&&r.role==="parent"&&r.active!==false).map(()=>"Parent"),
+    ...players.filter(p=>p.userId===user?.id&&p.active!==false).map(()=>"Player")
+  ];
   return [...new Set([...base,...assigned])].sort((a,b)=>ROLE_ORDER.indexOf(b)-ROLE_ORDER.indexOf(a));
 }
-function highestRole(user=currentUser){return rolesFor(user)[0]||"Player"}
+function highestRole(user=currentUser){return rolesFor(user)[0]||""}
 function isSuperUser(user=currentUser){return rolesFor(user).includes("Super User")}
-function isDirector(user=currentUser){return isSuperUser(user)||rolesFor(user).includes("Director")}
+function isDirector(user=currentUser){return rolesFor(user).includes("Director")}
 function isCoach(user=currentUser){return rolesFor(user).includes("Coach")||teamRoles.some(r=>r.userId===user?.id&&r.coach)}
 function isParent(user=currentUser){return rolesFor(user).includes("Parent")}
-function isAdmin(){return Boolean(currentUser)&&(isDirector()||isCoach()||isParent())}
-function canManageOrganization(){return isDirector()}
-function canCreateProfile(){return canManageOrganization()}
-function canCreateTeam(){return canManageOrganization()}
-function canCreatePlayer(){return canManageOrganization()||isParent()}
-function canResetPins(){return isSuperUser()}
+function isAdmin(){return Boolean(currentUser)&&(isSuperUser()||isDirector()||isCoach()||isParent())}
+function isMasquerading(){return Boolean(actualUser&&currentUser&&actualUser.id!==currentUser.id)}
+function canManageSecurity(){return isSuperUser(actualUser)&&!isMasquerading()}
+function canManageOrganization(orgId){return isSuperUser()||isDirector()||organizationRoles.some(r=>r.userId===currentUser?.id&&r.organizationId===orgId&&r.active!==false)}
+function canCreateProfile(){return isSuperUser()||isDirector()||headCoachTeamIds().length>0}
+function canCreateTeam(){return isSuperUser()||isDirector()}
+function canCreatePlayer(){return isDirector()||isParent()||headCoachTeamIds().length>0||assistantCoachTeamIds().length>0}
+function canResetPins(){return canManageSecurity()}
+function defaultOrg(){return organizations[0]}
+function userOrgIds(userId=currentUser?.id){if(isSuperUser())return organizations.map(o=>o.id);return organizationRoles.filter(r=>r.userId===userId&&r.active!==false).map(r=>r.organizationId)}
+function headCoachTeamIds(userId=currentUser?.id){return teamCoachRoles.filter(r=>r.userId===userId&&r.coachType==="head"&&r.active!==false).map(r=>r.teamId)}
+function assistantCoachTeamIds(userId=currentUser?.id){return teamCoachRoles.filter(r=>r.userId===userId&&r.coachType==="assistant"&&r.active!==false).map(r=>r.teamId)}
+function coachTeamIds(userId=currentUser?.id){return [...new Set([...headCoachTeamIds(userId),...assistantCoachTeamIds(userId)])]}
+function playerTagValues(playerId){return playerTags.filter(t=>t.playerId===playerId).flatMap(t=>t.tags||[])}
+function coachCanAccessPlayer(coachRole,playerId){
+  if(coachRole.coachType==="head")return true;
+  const specs=coachRole.specializations||["All"];
+  if(specs.includes("All"))return true;
+  return playerTagValues(playerId).some(t=>specs.includes(t));
+}
 function accessiblePlayerIds(){
   if(!currentUser)return[];
-  if(isDirector())return players.map(p=>p.id);
-  const direct=accessRecords.filter(a=>a.userId===currentUser.id).map(a=>a.playerId);
-  const coachedTeams=teamRoles.filter(r=>r.userId===currentUser.id&&r.coach).map(r=>r.teamId);
-  const coached=memberships.filter(m=>coachedTeams.includes(m.teamId)&&m.active).map(m=>m.playerId);
-  return [...new Set([...direct,...coached])];
+  if(isSuperUser()||isDirector())return players.map(p=>p.id);
+  const self=players.filter(p=>p.userId===currentUser.id).map(p=>p.id);
+  const household=householdMemberships.filter(m=>m.userId===currentUser.id&&m.role==="parent"&&m.active!==false).flatMap(m=>householdMemberships.filter(x=>x.householdId===m.householdId&&x.playerId&&x.active!==false).map(x=>x.playerId));
+  const coached=teamCoachRoles.filter(r=>r.userId===currentUser.id&&r.active!==false).flatMap(r=>playerTeamMemberships.filter(m=>m.teamId===r.teamId&&m.active!==false&&coachCanAccessPlayer(r,m.playerId)).map(m=>m.playerId));
+  return [...new Set([...self,...household,...coached])];
 }
 function managedTeamIds(){
-  if(isDirector())return teams.map(t=>t.id);
-  const coached=teamRoles.filter(r=>r.userId===currentUser?.id&&r.coach).map(r=>r.teamId);
+  if(isSuperUser()||isDirector())return teams.map(t=>t.id);
+  const coached=coachTeamIds();
   const household=memberships.filter(m=>accessiblePlayerIds().includes(m.playerId)&&m.active).map(m=>m.teamId);
   return [...new Set([...coached,...household])];
 }
 function canSchedule(){
-  return isDirector()||isCoach()||isParent()||teamRoles.some(r=>r.userId===currentUser?.id&&(r.coach||r.scheduler));
+  return !isSuperUser()&&(isDirector()||isCoach());
 }
 function canScheduleTeam(teamId){
-  return isDirector()||teamRoles.some(r=>r.userId===currentUser?.id&&r.teamId===teamId&&(r.coach||r.scheduler));
+  return !isSuperUser()&&(isDirector()||teamCoachRoles.some(r=>r.userId===currentUser?.id&&r.teamId===teamId&&r.active!==false));
 }
+function canBuildTraining(){return !isSuperUser()&&(isDirector()||isCoach())}
 function renderContext(){
   document.querySelector("#profile-name").textContent=currentUser?.name||"Profile";
   document.querySelector("#profile-roles").textContent=rolesFor().join(" · ");
@@ -256,6 +279,8 @@ function renderContext(){
   document.querySelector("#equipment-form").hidden=!isAdmin();
   document.querySelector("#add-event").hidden=!canSchedule();
   document.querySelector("#alert-badge").textContent=alerts.filter(a=>!a.read&&alertVisible(a)).length||"";
+  document.querySelector("#masquerade-banner").hidden=!isMasquerading();
+  document.querySelector("#masquerade-banner").innerHTML=isMasquerading()?`Masquerading as ${currentUser.name}. Security settings are disabled. <button class="text-button" id="banner-exit-masquerade" type="button">Exit masquerade</button>`:"";
 }
 function eventVisible(e){
   if(e.playerId)return e.playerId===currentPlayer?.id;
@@ -300,6 +325,31 @@ function alertVisible(a){
   const playerTeams=memberships.filter(m=>m.playerId===a.playerId).map(m=>m.teamId);
   return teamRoles.some(r=>r.userId===currentUser?.id&&r.coach&&playerTeams.includes(r.teamId));
 }
+function requestVisible(r){
+  if(r.status!=="pending")return false;
+  if(isSuperUser())return true;
+  if(r.requestedRole==="Director")return false;
+  if(isDirector())return true;
+  return headCoachTeamIds().length>0&&["Coach","Parent","Player"].includes(r.requestedRole);
+}
+function renderAdmin(){
+  if(!currentUser)return;
+  const playerIds=accessiblePlayerIds(),teamIds=managedTeamIds(),visibleTeams=teams.filter(t=>teamIds.includes(t.id));
+  const visibleUsers=isDirector()?users:users.filter(u=>u.id===currentUser.id||players.some(p=>playerIds.includes(p.id)&&p.userId===u.id));
+  const visiblePlayers=players.filter(p=>playerIds.includes(p.id));
+  document.querySelector("#add-profile").hidden=!canCreateProfile();
+  document.querySelector("#add-team").hidden=!canCreateTeam();
+  document.querySelector("#add-player").hidden=!canCreatePlayer();
+  document.querySelector("#assignment-form").closest("article").hidden=!(isSuperUser()||isDirector()||headCoachTeamIds().length);
+  document.querySelector("#masquerade-form").closest("article").hidden=!isSuperUser(actualUser);
+  document.querySelector("#profile-list").innerHTML=visibleUsers.map(u=>`<div class="manage-row"><div><strong>${u.name}</strong><small>${u.username||u.name} · ${rolesFor(u).map(r=>`${r}: ${ROLE_SCOPE[r]}`).join(" · ")||u.status||"pending"}${u.requestedRole?` · requested ${u.requestedRole}`:""}${u.lastLoginAt?` · Last login ${fmtDate(u.lastLoginAt.slice(0,10))}`:""} · ${u.loginCount||0} logins</small></div>${canResetPins()&&u.id!==actualUser?.id?`<button data-reset-pin="${u.id}">Reset PIN</button>`:""}</div>`).join("")||`<div class="empty-state">No visible profiles.</div>`;
+  document.querySelector("#player-list").innerHTML=visiblePlayers.map(p=>`<div class="manage-row"><div><strong>${p.name}</strong><small>Priority: ${teams.find(t=>t.id===p.priorityTeamId)?.name||"None"} · Tags: ${playerTagValues(p.id).join(", ")||"none"}</small></div></div>`).join("")||`<div class="empty-state">No visible players.</div>`;
+  document.querySelector("#team-list").innerHTML=visibleTeams.map(t=>{const head=teamCoachRoles.find(r=>r.teamId===t.id&&r.coachType==="head"&&r.active!==false);return `<div class="manage-row"><div><strong>${t.name}</strong><small>${t.season} · ${memberships.filter(m=>m.teamId===t.id&&m.active).length} players · Head: ${users.find(u=>u.id===head?.userId)?.name||"none"}</small></div><div>${isSuperUser()||isDirector()||canScheduleTeam(t.id)?`<button data-roster-team="${t.id}">${memberships.some(m=>m.teamId===t.id&&m.playerId===currentPlayer?.id)?"Remove selected":"Add selected"}</button><button data-priority-team="${t.id}">Make priority</button>`:""}</div></div>`}).join("")||`<div class="empty-state">No visible teams.</div>`;
+  document.querySelector("#request-list").innerHTML=accessRequests.filter(requestVisible).map(r=>`<div class="manage-row"><div><strong>${users.find(u=>u.id===r.userId)?.name||"User"}</strong><small>${r.requestedRole} · ${r.status}</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`).join("")||`<div class="empty-state">No pending requests.</div>`;
+  document.querySelector("#assignment-user").innerHTML=users.filter(u=>!isSuperUser(u)).map(u=>`<option value="${u.id}">${u.name} (${rolesFor(u).join("/")||u.requestedRole||"pending"})</option>`).join("");
+  document.querySelector("#assignment-team").innerHTML=visibleTeams.map(t=>`<option value="${t.id}">${t.name}</option>`).join("");
+  document.querySelector("#masquerade-user").innerHTML=users.filter(u=>!isSuperUser(u)&&u.active!==false).map(u=>`<option value="${u.id}">${u.name} (${rolesFor(u).join("/")||u.status})</option>`).join("");
+}
 function renderAlerts(){
   const visible=alerts.filter(alertVisible).sort((a,b)=>b.created.localeCompare(a.created));
   document.querySelector("#alert-list").innerHTML=visible.map(a=>`<article class="agenda-item ${a.read?"":"unread"}"><time>${fmtDate(a.created.slice(0,10))}</time><div><span class="tag">${a.type}</span><h3>${a.title}</h3><p>${a.message}</p>${a.status==="pending"&&isAdmin()?`<div class="conflict-actions"><button data-pain-decision="allow" data-alert-id="${a.id}">Allow this session</button><button data-pain-decision="remove" data-alert-id="${a.id}">Remove throwing</button></div>`:""}</div></article>`).join("")||`<div class="empty-state">No alerts.</div>`;
@@ -328,12 +378,50 @@ function openVariationDialog(blueprintId,variationId=""){
 function selectedVariationSession(){const b=workoutFor(document.querySelector("#variation-blueprint-id").value);return {...b,name:document.querySelector("#variation-name").value,drillIds:[...document.querySelectorAll("[data-variation-slot]")].map(s=>s.value)}}
 function updateVariationWarnings(){const box=document.querySelector("#variation-warnings"),session=selectedVariationSession(),issues=sessionIssues(session);box.innerHTML=issues.length?`<div class="builder-warnings">${issues.map(i=>`<p class="${i.type}">${i.text}</p>`).join("")}</div>`:`<div class="builder-ready">Ready to save. All selected drills are approved and equipment-ready.</div>`}
 async function refreshRecords(){
-  [users,players,teams,memberships,accessRecords,teamRoles,events,alerts,decisions]=await Promise.all(["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","alerts","decisions"].map(ClubhouseDB.all));
-  users=users.map(u=>({...u,roles:normalizeRoles(u),loginCount:u.loginCount||0,lastLoginAt:u.lastLoginAt||null}));
+  [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests"].map(ClubhouseDB.all));
+  const oldMemberships=await ClubhouseDB.all("teamMemberships"),oldTeamRoles=await ClubhouseDB.all("userTeamRoles");
+  await migrateAssociations(oldMemberships,oldTeamRoles);
+  [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests"].map(ClubhouseDB.all));
+  users=users.map(u=>({...u,username:u.username||u.name,roles:normalizeRoles(u),status:u.status||"active",loginCount:u.loginCount||0,lastLoginAt:u.lastLoginAt||null}));
+  memberships=playerTeamMemberships;
+  teamRoles=teamCoachRoles.map(r=>({id:r.id,userId:r.userId,teamId:r.teamId,coach:true,scheduler:true,coachType:r.coachType,specializations:r.specializations,active:r.active}));
+}
+async function migrateAssociations(oldMemberships=[],oldTeamRoles=[]){
+  if(!organizations.length){
+    const setup=await ClubhouseDB.get("meta","setup"),orgId=setup?.defaultOrganizationId||ClubhouseDB.id("org");
+    await ClubhouseDB.put("organizations",{id:orgId,name:"Default Organization",settings:{directorApprovalRequiredForCoachPlans:false},equipment:[],active:true,created:new Date().toISOString()});
+    if(setup)await ClubhouseDB.put("meta",{...setup,defaultOrganizationId:orgId,version:2});
+    organizations=[await ClubhouseDB.get("organizations",orgId)];
+  }
+  const orgId=organizations[0]?.id;
+  for(const team of teams.filter(t=>!t.organizationId))await ClubhouseDB.put("teams",{...team,organizationId:orgId,equipment:team.equipment||[]});
+  if(!playerTeamMemberships.length&&oldMemberships.length){
+    for(const m of oldMemberships)await ClubhouseDB.put("playerTeamMemberships",{id:m.id,playerId:m.playerId,teamId:m.teamId,active:m.active!==false,priority:m.priority||1});
+  }
+  if(!teamCoachRoles.length&&oldTeamRoles.length){
+    const byTeam={};oldTeamRoles.filter(r=>r.coach||r.scheduler).forEach(r=>(byTeam[r.teamId]??=[]).push(r));
+    for(const list of Object.values(byTeam)){
+      for(const r of list){
+        const only=list.length===1,coachType=only?"head":"assistant";
+        await ClubhouseDB.put("teamCoachRoles",{id:r.id,userId:r.userId,teamId:r.teamId,coachType,permissions:{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:["All"],active:true});
+      }
+    }
+  }
+  for(const user of users){
+    const roles=normalizeRoles(user);
+    if(roles.includes("Director")&&!organizationRoles.some(r=>r.userId===user.id))await ClubhouseDB.put("organizationRoles",{id:ClubhouseDB.id("orgRole"),userId:user.id,organizationId:orgId,role:"director",active:true});
+  }
+  for(const access of accessRecords.filter(a=>a.permission==="manage")){
+    const parent=users.find(u=>u.id===access.userId);if(!parent)continue;
+    let household=households.find(h=>h.ownerUserId===parent.id);
+    if(!household){household={id:ClubhouseDB.id("household"),name:`${parent.name}'s Household`,ownerUserId:parent.id,equipment:[],active:true};await ClubhouseDB.put("households",household);households.push(household)}
+    if(!householdMemberships.some(m=>m.householdId===household.id&&m.userId===parent.id)){const item={id:ClubhouseDB.id("hh"),householdId:household.id,userId:parent.id,role:"parent",active:true};await ClubhouseDB.put("householdMemberships",item);householdMemberships.push(item)}
+    if(!householdMemberships.some(m=>m.householdId===household.id&&m.playerId===access.playerId)){const item={id:ClubhouseDB.id("hh"),householdId:household.id,playerId:access.playerId,role:"player",active:true};await ClubhouseDB.put("householdMemberships",item);householdMemberships.push(item)}
+  }
 }
 async function selectPlayer(id){
   currentPlayer=players.find(p=>p.id===id)||players.find(p=>accessiblePlayerIds().includes(p.id));
-  if(!currentPlayer)return;
+  if(!currentPlayer){state=structuredClone(defaultState);renderAll();return}
   const record=await ClubhouseDB.get("playerData",currentPlayer.id);state=normalizeState(record?.data||structuredClone(defaultState));
   localStorage.setItem(ACTIVE_PLAYER_KEY,currentPlayer.id);renderAll();
 }
@@ -357,18 +445,59 @@ async function recordLogin(user){
 function roleHome(){if(highestRole()==="Player")switchView("dashboard");else if(isCoach()&&!isDirector())switchView("schedule");else switchView(alerts.some(a=>!a.read&&alertVisible(a))?"alerts":"dashboard")}
 async function boot(){
   await ClubhouseDB.open();
-  if(!await ClubhouseDB.hasSetup()){showAuth();setupScreen();return}
+  await ClubhouseDB.seedInitialSuperUser();
   await refreshRecords();
   const saved=users.find(u=>u.id===localStorage.getItem(ACTIVE_USER_KEY));
   if(!saved){showAuth();loginScreen();return}
-  currentUser=saved;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
+  actualUser=saved;currentUser=users.find(u=>u.id===localStorage.getItem(EFFECTIVE_USER_KEY))||saved;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
+}
+function loginScreen(message=""){
+  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Local login</p><h1>Clubhouse Login</h1>${message?`<p class="auth-error">${message}</p>`:""}<form id="login-form" class="form-stack"><label>Username<input id="login-username" autocomplete="username" required></label><label>PIN<input id="login-pin" type="password" inputmode="numeric" autocomplete="current-password" required></label><button class="primary-button">Enter clubhouse</button><button class="text-button" type="button" id="open-signup">Sign Up</button></form>`;
+  document.querySelector("#open-signup").onclick=()=>openSignupDialog();
+  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();const name=document.querySelector("#login-username").value.trim().toLowerCase(),user=users.find(u=>(u.username||u.name).toLowerCase()===name&&u.active!==false);if(!user||!await ClubhouseDB.verifyPin(document.querySelector("#login-pin").value,user)){loginScreen("That username or PIN did not match.");return}actualUser=user;currentUser=user;await recordLogin(user);localStorage.setItem(ACTIVE_USER_KEY,user.id);localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()};
+}
+function openSignupDialog(){
+  document.querySelector("#signup-dialog").showModal();
+}
+async function approveRequest(id){
+  const req=accessRequests.find(r=>r.id===id),user=users.find(u=>u.id===req?.userId);if(!req||!user)return;
+  if(req.requestedRole==="Director"&&!isSuperUser()){alert("Only Super Users can approve Directors.");return}
+  if(!["Director","Coach","Parent","Player"].includes(req.requestedRole)){alert("Invalid requested role.");return}
+  const orgId=defaultOrg()?.id,approverHeadTeam=headCoachTeamIds()[0];
+  user.status="active";user.roles=[req.requestedRole];user.requestedRole="";
+  await ClubhouseDB.put("users",user);
+  if(req.requestedRole==="Director")await ClubhouseDB.put("organizationRoles",{id:ClubhouseDB.id("orgRole"),userId:user.id,organizationId:orgId,role:"director",active:true});
+  if(req.requestedRole==="Coach"&&approverHeadTeam&&!isDirector())await ClubhouseDB.put("teamCoachRoles",{id:ClubhouseDB.id("coachRole"),userId:user.id,teamId:approverHeadTeam,coachType:"assistant",permissions:{manageTeam:true,managePlans:true,manageParents:false,manageAssistants:false},specializations:["All"],active:true});
+  if(req.requestedRole==="Parent"){
+    const household={id:ClubhouseDB.id("household"),name:`${user.name}'s Household`,ownerUserId:user.id,equipment:[],active:true};
+    await ClubhouseDB.put("households",household);await ClubhouseDB.put("householdMemberships",{id:ClubhouseDB.id("hh"),householdId:household.id,userId:user.id,role:"parent",active:true});
+  }
+  if(req.requestedRole==="Player"){
+    const playerId=ClubhouseDB.id("player");await ClubhouseDB.put("players",{id:playerId,name:user.name,userId:user.id,active:true});await ClubhouseDB.put("playerData",{id:playerId,data:structuredClone(defaultState)});if(approverHeadTeam&&!isDirector())await ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),playerId,teamId:approverHeadTeam,active:true,priority:1});
+  }
+  req.status="approved";req.decidedBy=actualUser?.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
+  await refreshRecords();renderAll();showToast("Request approved");
+}
+async function denyRequest(id){
+  const req=accessRequests.find(r=>r.id===id);if(!req)return;
+  req.status="denied";req.decidedBy=actualUser?.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
+  await refreshRecords();renderAll();showToast("Request denied");
+}
+async function startMasquerade(userId){
+  if(!isSuperUser(actualUser)||isMasquerading())return;
+  const target=users.find(u=>u.id===userId&&!isSuperUser(u));if(!target)return;
+  currentUser=target;localStorage.setItem(EFFECTIVE_USER_KEY,target.id);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));renderAll();
+}
+async function exitMasquerade(){
+  if(!actualUser)return;
+  currentUser=actualUser;localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));renderAll();
 }
 async function createAlert(type,title,message,playerId=currentPlayer?.id){
   const item={id:ClubhouseDB.id("alert"),type,title,message,playerId,status:"pending",read:false,created:new Date().toISOString()};await ClubhouseDB.put("alerts",item);alerts.push(item);
   if(Notification.permission==="granted")new Notification(title,{body:message,icon:"assets/icon.svg"});
 }
 function profileRoleOptions(){
-  const roles=isSuperUser()?["Super User","Director","Coach","Parent","Player"]:["Director","Coach","Parent","Player"];
+  const roles=isSuperUser()&&!isMasquerading()?["Super User","Director","Coach","Parent","Player"]:isDirector()?["Coach","Parent","Player"]:headCoachTeamIds().length?["Coach","Parent","Player"]:["Parent","Player"];
   return roles.map(r=>`<option>${r}</option>`).join("");
 }
 function openManage(kind){
@@ -380,21 +509,25 @@ function openManage(kind){
 document.addEventListener("click",e=>{
   const v=e.target.closest("[data-view-link]");if(v){e.preventDefault();switchView(v.dataset.viewLink)}
   const start=e.target.closest("[data-start-session]");if(start)startSession(start.dataset.startSession);
-  const build=e.target.closest("[data-build-variation]");if(build)openVariationDialog(build.dataset.buildVariation);
-  const editVariation=e.target.closest("[data-edit-variation]");if(editVariation){const item=variationFor(editVariation.dataset.editVariation);openVariationDialog(item.blueprintId,item.id)}
-  const deleteVariation=e.target.closest("[data-delete-variation]");if(deleteVariation&&confirm("Delete this saved variation?")){state.variations=state.variations.filter(v=>v.id!==deleteVariation.dataset.deleteVariation);saveState();renderAll()}
+  const build=e.target.closest("[data-build-variation]");if(build&&canBuildTraining())openVariationDialog(build.dataset.buildVariation);
+  const editVariation=e.target.closest("[data-edit-variation]");if(editVariation&&canBuildTraining()){const item=variationFor(editVariation.dataset.editVariation);openVariationDialog(item.blueprintId,item.id)}
+  const deleteVariation=e.target.closest("[data-delete-variation]");if(deleteVariation&&canBuildTraining()&&confirm("Delete this saved variation?")){state.variations=state.variations.filter(v=>v.id!==deleteVariation.dataset.deleteVariation);saveState();renderAll()}
   const approval=e.target.closest("[data-toggle-approval]");if(approval){const id=approval.dataset.toggleApproval;if(isApproved(drillFor(id)))state.approvedDrillIds=state.approvedDrillIds.filter(x=>x!==id);else state.approvedDrillIds.push(id);saveState();renderAll()}
   const filter=e.target.closest("[data-library-filter]");if(filter){libraryFilter=filter.dataset.libraryFilter;renderLibrary()}
   const remove=e.target.closest("[data-remove-equipment]");if(remove&&confirm(`Remove ${remove.dataset.removeEquipment} from the Equipment Shed?`)){state.equipment=state.equipment.filter(x=>x!==remove.dataset.removeEquipment);saveState();renderAll()}
   if(e.target.closest("[data-close-variation]"))document.querySelector("#variation-dialog").close();
   if(e.target.closest("[data-close-event]"))document.querySelector("#event-dialog").close();
   if(e.target.closest("[data-close-manage]"))document.querySelector("#manage-dialog").close();
+  if(e.target.closest("[data-close-signup]"))document.querySelector("#signup-dialog").close();
+  if(e.target.closest("#banner-exit-masquerade"))exitMasquerade();
   const deleteEvent=e.target.closest("[data-delete-event]");if(deleteEvent&&confirm("Delete this event and all recurring occurrences?"))ClubhouseDB.remove("events",deleteEvent.dataset.deleteEvent).then(async()=>{await refreshRecords();renderAll()});
   const conflict=e.target.closest("[data-conflict-action]");if(conflict){ClubhouseDB.put("decisions",{id:ClubhouseDB.id("decision"),playerId:currentPlayer.id,eventId:conflict.dataset.conflictEvent,date:conflict.dataset.conflictDate,action:conflict.dataset.conflictAction,created:new Date().toISOString()}).then(async()=>{await refreshRecords();renderAll()});showToast(`Conflict marked: ${conflict.dataset.conflictAction}`)}
   const pain=e.target.closest("[data-pain-decision]");if(pain){const item=alerts.find(a=>a.id===pain.dataset.alertId);item.status=pain.dataset.painDecision==="allow"?"allowed":"removed";item.read=true;if(item.status==="removed"){state.throwingRemovedDate=todayISO();saveState()}ClubhouseDB.put("alerts",item);ClubhouseDB.put("decisions",{id:ClubhouseDB.id("decision"),alertId:item.id,action:item.status,userId:currentUser.id,created:new Date().toISOString()});renderAll()}
-  const roster=e.target.closest("[data-roster-team]");if(roster){const existing=memberships.find(m=>m.teamId===roster.dataset.rosterTeam&&m.playerId===currentPlayer.id);(existing?ClubhouseDB.remove("teamMemberships",existing.id):ClubhouseDB.put("teamMemberships",{id:ClubhouseDB.id("membership"),teamId:roster.dataset.rosterTeam,playerId:currentPlayer.id,active:true,priority:memberships.some(m=>m.playerId===currentPlayer.id)?2:1})).then(async()=>{await refreshRecords();renderAll()})}
-  const priority=e.target.closest("[data-priority-team]");if(priority){currentPlayer.priorityTeamId=priority.dataset.priorityTeam;ClubhouseDB.put("players",currentPlayer).then(async()=>{await refreshRecords();renderAll()})}
-  const reset=e.target.closest("[data-reset-pin]");if(reset){const pin=prompt("Enter the new local PIN (4+ characters):");if(pin)ClubhouseDB.hashPin(pin).then(async h=>{const user=users.find(u=>u.id===reset.dataset.resetPin);Object.assign(user,{pinSalt:h.salt,pinHash:h.hash});await ClubhouseDB.put("users",user);showToast("PIN reset")})}
+  const roster=e.target.closest("[data-roster-team]");if(roster){if(!currentPlayer){alert("Select a player before changing roster membership.");return}const existing=memberships.find(m=>m.teamId===roster.dataset.rosterTeam&&m.playerId===currentPlayer.id);(existing?ClubhouseDB.remove("playerTeamMemberships",existing.id):ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),teamId:roster.dataset.rosterTeam,playerId:currentPlayer.id,active:true,priority:memberships.some(m=>m.playerId===currentPlayer.id)?2:1})).then(async()=>{await refreshRecords();renderAll()})}
+  const priority=e.target.closest("[data-priority-team]");if(priority){if(!currentPlayer){alert("Select a player before changing priority team.");return}currentPlayer.priorityTeamId=priority.dataset.priorityTeam;ClubhouseDB.put("players",currentPlayer).then(async()=>{await refreshRecords();renderAll()})}
+  const reset=e.target.closest("[data-reset-pin]");if(reset){if(!canManageSecurity()){alert("Security settings are disabled while masquerading.");return}const pin=prompt("Enter the new local PIN (4+ characters):");if(pin)ClubhouseDB.hashPin(pin).then(async h=>{const user=users.find(u=>u.id===reset.dataset.resetPin);Object.assign(user,{pinSalt:h.salt,pinHash:h.hash});await ClubhouseDB.put("users",user);showToast("PIN reset")})}
+  const approve=e.target.closest("[data-approve-request]");if(approve)approveRequest(approve.dataset.approveRequest);
+  const deny=e.target.closest("[data-deny-request]");if(deny)denyRequest(deny.dataset.denyRequest);
 });
 document.addEventListener("change",e=>{if(e.target.matches("[data-variation-slot]"))updateVariationWarnings();if(e.target.id==="log-workout")renderLogDrills()});
 document.querySelector("#menu-button").onclick=()=>document.querySelector(".sidebar").classList.toggle("open");
@@ -405,16 +538,20 @@ document.querySelector("#add-workout").style.display="none";
 document.querySelector("#reset-data").onclick=()=>{if(confirm("Reset all app data to the incorporated development plan?")){state=structuredClone(defaultState);saveState();renderAll();showToast("Development plan restored")}};
 document.querySelectorAll("#phase-filters .filter").forEach(b=>b.onclick=()=>{state.currentPhase=b.dataset.phase;saveState();document.querySelectorAll("#phase-filters .filter").forEach(x=>x.classList.toggle("active",x===b));renderAll()});
 document.addEventListener("click",e=>{const feeling=e.target.closest("[data-feeling]");if(feeling){state.readiness[feeling.dataset.feeling]=+feeling.dataset.value;renderReadiness()}});
-document.querySelector("#save-readiness").onclick=async()=>{state.readiness.date=todayISO();state.readiness.detail=document.querySelector("#readiness-detail").value.trim();saveState();if(state.readiness.arm===1)await createAlert("Arm Pain",`${currentPlayer.name} reported arm pain`,state.readiness.detail||"Throwing requires an admin decision.");else{const pending=alerts.filter(a=>a.playerId===currentPlayer.id&&a.type==="Arm Pain"&&a.status==="pending");for(const a of pending){a.status="cleared";a.read=true;await ClubhouseDB.put("alerts",a)}}await refreshRecords();renderAll();showToast("Check-in saved")};
+document.querySelector("#save-readiness").onclick=async()=>{if(!currentPlayer){alert("Select or create a player before saving a check-in.");return}state.readiness.date=todayISO();state.readiness.detail=document.querySelector("#readiness-detail").value.trim();saveState();if(state.readiness.arm===1)await createAlert("Arm Pain",`${currentPlayer.name} reported arm pain`,state.readiness.detail||"Throwing requires an admin decision.");else{const pending=alerts.filter(a=>a.playerId===currentPlayer.id&&a.type==="Arm Pain"&&a.status==="pending");for(const a of pending){a.status="cleared";a.read=true;await ClubhouseDB.put("alerts",a)}}await refreshRecords();renderAll();showToast("Check-in saved")};
 document.querySelector("#log-rpe").oninput=e=>document.querySelector("#rpe-output").textContent=e.target.value;
 document.querySelector("#pitch-soreness").oninput=e=>document.querySelector("#pitch-soreness-output").textContent=e.target.value;
 document.querySelector("#equipment-form").onsubmit=e=>{e.preventDefault();const name=document.querySelector("#equipment-name").value.trim();if(name&&!state.equipment.some(x=>x.toLowerCase()===name.toLowerCase()))state.equipment.push(name);saveState();e.target.reset();renderAll();showToast("Equipment added")};
-document.querySelector("#add-event").onclick=()=>{document.querySelector("#event-date").value=todayISO();const teamOptions=teams.filter(t=>memberships.some(m=>m.playerId===currentPlayer.id&&m.teamId===t.id)&&canScheduleTeam(t.id)).map(t=>`<option value="team:${t.id}">${t.name}</option>`).join("");document.querySelector("#event-scope").innerHTML=`<option value="player:${currentPlayer.id}">${currentPlayer.name}</option>${teamOptions}`;document.querySelector("#event-dialog").showModal()};
+document.querySelector("#add-event").onclick=()=>{if(!currentPlayer){alert("Select a player before adding an event.");return}document.querySelector("#event-date").value=todayISO();const teamOptions=teams.filter(t=>memberships.some(m=>m.playerId===currentPlayer.id&&m.teamId===t.id)&&canScheduleTeam(t.id)).map(t=>`<option value="team:${t.id}">${t.name}</option>`).join("");document.querySelector("#event-scope").innerHTML=`<option value="player:${currentPlayer.id}">${currentPlayer.name}</option>${teamOptions}`;document.querySelector("#event-dialog").showModal()};
 document.querySelector("#event-form").onsubmit=async e=>{e.preventDefault();const [scope,id]=document.querySelector("#event-scope").value.split(":");await ClubhouseDB.put("events",{id:ClubhouseDB.id("event"),title:document.querySelector("#event-title").value.trim(),type:document.querySelector("#event-type").value,workload:document.querySelector("#event-workload").value,date:document.querySelector("#event-date").value,repeat:document.querySelector("#event-repeat").value,[`${scope}Id`]:id,createdBy:currentUser.id});document.querySelector("#event-dialog").close();e.target.reset();await refreshRecords();renderAll()};
 document.querySelector("#add-profile").onclick=()=>openManage("Profile");document.querySelector("#add-player").onclick=()=>openManage("Player");document.querySelector("#add-team").onclick=()=>openManage("Team");
 document.querySelector("#manage-form").onsubmit=async e=>{e.preventDefault();const kind=document.querySelector("#manage-kind").value,name=document.querySelector("#manage-name").value.trim();if(kind==="Profile"){if(!canCreateProfile()){alert("Only a Director or Super User can create profiles.");return}const role=document.querySelector("#manage-role").value;if(role==="Super User"&&!isSuperUser()){alert("Only a Super User can create another Super User.");return}const h=await ClubhouseDB.hashPin(document.querySelector("#manage-pin").value);await ClubhouseDB.put("users",{id:ClubhouseDB.id("user"),name,pinSalt:h.salt,pinHash:h.hash,owner:false,active:true,roles:[role],loginCount:0,lastLoginAt:null})}else if(kind==="Player"){if(!canCreatePlayer()){alert("Only a Director, Super User, or Parent can create player profiles.");return}const id=ClubhouseDB.id("player"),userId=ClubhouseDB.id("user"),h=await ClubhouseDB.hashPin(document.querySelector("#manage-player-pin").value);await ClubhouseDB.put("users",{id:userId,name,pinSalt:h.salt,pinHash:h.hash,owner:false,active:true,roles:["Player"],loginCount:0,lastLoginAt:null});await ClubhouseDB.put("players",{id,name,userId,active:true});await ClubhouseDB.put("playerData",{id,data:structuredClone(defaultState)});await ClubhouseDB.put("userPlayerAccess",{id:ClubhouseDB.id("access"),userId,playerId:id,permission:"self"});const parent=document.querySelector("#manage-parent").value||(!isDirector()&&isParent()?currentUser.id:"");if(parent)await ClubhouseDB.put("userPlayerAccess",{id:ClubhouseDB.id("access"),userId:parent,playerId:id,permission:"manage"})}else{if(!canCreateTeam()){alert("Only a Director or Super User can create teams.");return}await ClubhouseDB.put("teams",{id:ClubhouseDB.id("team"),name,season:document.querySelector("#manage-season").value,equipment:[]})}document.querySelector("#manage-dialog").close();await refreshRecords();renderAll()};
-document.querySelector("#assignment-form").onsubmit=async e=>{e.preventDefault();if(!isDirector()){alert("Only a Director or Super User can assign team roles.");return}const userId=document.querySelector("#assignment-user").value,teamId=document.querySelector("#assignment-team").value,existing=teamRoles.find(r=>r.userId===userId&&r.teamId===teamId),coach=document.querySelector("#assignment-coach").checked;await ClubhouseDB.put("userTeamRoles",{id:existing?.id||ClubhouseDB.id("role"),userId,teamId,coach,scheduler:coach});await refreshRecords();renderAll();showToast("Team role saved")};
-document.querySelector("#sign-out").onclick=()=>{localStorage.removeItem(ACTIVE_USER_KEY);currentUser=null;showAuth();loginScreen()};
+document.querySelector("#manage-form").onsubmit=async e=>{e.preventDefault();const kind=document.querySelector("#manage-kind").value,name=document.querySelector("#manage-name").value.trim(),orgId=defaultOrg()?.id;if(kind==="Profile"){if(!canCreateProfile()){alert("You do not have permission to create profiles.");return}const role=document.querySelector("#manage-role").value;if(role==="Super User"&&!canManageSecurity()){alert("Only a non-masquerading Super User can create another Super User.");return}const h=await ClubhouseDB.hashPin(document.querySelector("#manage-pin").value),user={id:ClubhouseDB.id("user"),username:name,name,pinSalt:h.salt,pinHash:h.hash,owner:false,active:true,status:"active",roles:[role],loginCount:0,lastLoginAt:null};await ClubhouseDB.put("users",user);if(role==="Director")await ClubhouseDB.put("organizationRoles",{id:ClubhouseDB.id("orgRole"),userId:user.id,organizationId:orgId,role:"director",active:true});if(role==="Parent"){const household={id:ClubhouseDB.id("household"),name:`${name}'s Household`,ownerUserId:user.id,equipment:[],active:true};await ClubhouseDB.put("households",household);await ClubhouseDB.put("householdMemberships",{id:ClubhouseDB.id("hh"),householdId:household.id,userId:user.id,role:"parent",active:true})}}else if(kind==="Player"){if(!canCreatePlayer()){alert("You do not have permission to create players.");return}const id=ClubhouseDB.id("player"),userId=ClubhouseDB.id("user"),h=await ClubhouseDB.hashPin(document.querySelector("#manage-player-pin").value);await ClubhouseDB.put("users",{id:userId,username:name,name,pinSalt:h.salt,pinHash:h.hash,owner:false,active:true,status:"active",roles:["Player"],loginCount:0,lastLoginAt:null});await ClubhouseDB.put("players",{id,name,userId,active:true});await ClubhouseDB.put("playerData",{id,data:structuredClone(defaultState)});const parent=document.querySelector("#manage-parent").value||(!isDirector()&&isParent()?currentUser.id:"");if(parent){let household=households.find(h=>h.ownerUserId===parent);if(!household){household={id:ClubhouseDB.id("household"),name:`${users.find(u=>u.id===parent)?.name||"Parent"}'s Household`,ownerUserId:parent,equipment:[],active:true};await ClubhouseDB.put("households",household)}await ClubhouseDB.put("householdMemberships",{id:ClubhouseDB.id("hh"),householdId:household.id,userId:parent,role:"parent",active:true});await ClubhouseDB.put("householdMemberships",{id:ClubhouseDB.id("hh"),householdId:household.id,playerId:id,role:"player",active:true})}}else{if(!canCreateTeam()){alert("You do not have permission to create teams.");return}await ClubhouseDB.put("teams",{id:ClubhouseDB.id("team"),name,season:document.querySelector("#manage-season").value,organizationId:orgId,equipment:[]})}document.querySelector("#manage-dialog").close();await refreshRecords();renderAll()};
+document.querySelector("#assignment-form").onsubmit=async e=>{e.preventDefault();const userId=document.querySelector("#assignment-user").value,teamId=document.querySelector("#assignment-team").value,coachType=document.querySelector("#assignment-coach-type").value,specializations=[...document.querySelector("#assignment-specializations").selectedOptions].map(o=>o.value||o.textContent);if(!isSuperUser()&&!isDirector()&&!headCoachTeamIds().includes(teamId)){alert("Only Super Users, Directors, or this team's Head Coach can assign team coach roles.");return}if(coachType==="head"&&!isSuperUser()&&!isDirector()){alert("Only Super Users or Directors can assign a Head Coach.");return}const existingHead=teamCoachRoles.find(r=>r.teamId===teamId&&r.coachType==="head"&&r.active!==false&&r.userId!==userId);if(coachType==="head"&&existingHead){alert("Only one active Head Coach is allowed per team.");return}const existing=teamCoachRoles.find(r=>r.userId===userId&&r.teamId===teamId);const user=users.find(u=>u.id===userId);if(user&&!rolesFor(user).includes("Coach"))await ClubhouseDB.put("users",{...user,roles:[...new Set([...normalizeRoles(user),"Coach"])],status:"active"});await ClubhouseDB.put("teamCoachRoles",{id:existing?.id||ClubhouseDB.id("coachRole"),userId,teamId,coachType,permissions:{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:specializations.length?specializations:["All"],active:true});await refreshRecords();renderAll();showToast("Team coach role saved")};
+document.querySelector("#signup-form").onsubmit=async e=>{e.preventDefault();const username=document.querySelector("#signup-username").value.trim(),name=document.querySelector("#signup-name").value.trim(),pin=document.querySelector("#signup-pin").value,requestedRole=document.querySelector("#signup-role").value;if(users.some(u=>(u.username||u.name).toLowerCase()===username.toLowerCase())){alert("That username is already taken.");return}const h=await ClubhouseDB.hashPin(pin),user={id:ClubhouseDB.id("user"),username,name,pinSalt:h.salt,pinHash:h.hash,active:true,status:"pending_association",roles:[],requestedRole,loginCount:0,lastLoginAt:null};await ClubhouseDB.put("users",user);await ClubhouseDB.put("accessRequests",{id:ClubhouseDB.id("request"),userId:user.id,requestedRole,status:"pending",created:new Date().toISOString()});document.querySelector("#signup-dialog").close();document.querySelector("#signup-form").reset();await refreshRecords();loginScreen("Account created. It is pending association approval.")};
+document.querySelector("#masquerade-form").onsubmit=e=>{e.preventDefault();startMasquerade(document.querySelector("#masquerade-user").value)};
+document.querySelector("#exit-masquerade").onclick=()=>exitMasquerade();
+document.querySelector("#sign-out").onclick=()=>{localStorage.removeItem(ACTIVE_USER_KEY);localStorage.removeItem(EFFECTIVE_USER_KEY);actualUser=null;currentUser=null;showAuth();loginScreen()};
 document.querySelector("#enable-notifications").onclick=async()=>{if("Notification"in window){const p=await Notification.requestPermission();showToast(`Notifications: ${p}`)}};
 document.querySelector("#install-app").onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt=null}else showToast("Use your browser's Add to Home Screen option.")};
 document.querySelector("#mark-alerts-read").onclick=async()=>{for(const a of alerts.filter(alertVisible)){a.read=true;await ClubhouseDB.put("alerts",a)}renderAll()};

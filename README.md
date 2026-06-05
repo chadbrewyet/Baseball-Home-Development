@@ -28,10 +28,14 @@ Open `http://localhost:4173`. The app stores local profiles and records in Index
 - Dashboard and progress summaries
 - Local Super User, Director, Coach, Parent, and Player profiles using name + PIN
 - Login tracking with last-login timestamps and local login counts
+- Seeded local Super User login for fresh installs
+- Pending public sign-up requests with admin approval before association access
+- Organization, team coach role, household, player-team, player-tag, and access-request records shaped for a future Supabase migration
+- Super User masquerade support for testing non-Super User functionality
 - Multiple teams, priority-team membership, team events, player overrides, and conflict decisions
 - Five-choice illustrated player readiness check-in with arm-pain admin alerts
 - Responsive installable PWA with offline app-shell support
 
 ## Local role model
 
-Permissions are scoped as Super User, Director, Coach, Parent, Player. Super User has full local access. Directors manage the organization, Coaches manage assigned teams, Parents manage linked household players, and Players manage only their own check-ins and training records. UI controls and form handlers both check these scopes.
+Permissions are scoped as Super User, Director, Coach, Parent, Player. Fresh installs seed username `Super User` with PIN `244466666888888888`. Super Users manage users, roles, approvals, and masquerade testing. Directors manage assigned organizations. Head and Assistant Coach access is stored per team, with one active Head Coach per team. Parents manage households and household equipment. Players manage only their own check-ins and logs. UI controls and form handlers both check these scopes.

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div class="masquerade-banner" id="masquerade-banner" hidden></div>
   <aside class="sidebar">
     <a class="brand" href="#" data-view-link="dashboard">
       <span class="brand-mark">C</span>
@@ -212,7 +213,9 @@
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Local access</p><h2>Profiles</h2></div><button class="text-button" id="add-profile">+ Profile</button></div><div id="profile-list"></div></article>
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Players and relationships</p><h2>Players</h2></div><button class="text-button" id="add-player">+ Player</button></div><div id="player-list"></div></article>
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Roster and equipment</p><h2>Teams</h2></div><button class="text-button" id="add-team">+ Team</button></div><div id="team-list"></div></article>
-        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User controls</p><h2>Team Assignments</h2></div></div><form id="assignment-form" class="form-stack"><label>User<select id="assignment-user"></select></label><label>Team<select id="assignment-team"></select></label><label class="check-label"><input id="assignment-coach" type="checkbox"><span><strong>Coach for this team</strong><small>Can manage rostered players and team calendar events</small></span></label><button class="secondary-button">Save team role</button></form></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Association approvals</p><h2>Pending Requests</h2></div></div><div id="request-list"></div></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Coach controls</p><h2>Team Assignments</h2></div></div><form id="assignment-form" class="form-stack"><label>User<select id="assignment-user"></select></label><label>Team<select id="assignment-team"></select></label><label>Coach type<select id="assignment-coach-type"><option value="assistant">Assistant Coach</option><option value="head">Head Coach</option></select></label><label>Specializations<select id="assignment-specializations" multiple><option selected>All</option><option>pitching</option><option>hitting</option><option>infielding</option><option>outfielding</option><option>catching</option></select></label><button class="secondary-button">Save team role</button></form></article>
+        <article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User testing</p><h2>Masquerade</h2></div></div><form id="masquerade-form" class="form-stack"><label>Use app as<select id="masquerade-user"></select></label><button class="secondary-button">Start masquerade</button><button class="text-button" type="button" id="exit-masquerade">Exit masquerade</button></form></article>
         <article class="panel"><div class="section-heading"><div><p class="eyebrow">Device features</p><h2>App Settings</h2></div></div><button class="secondary-button wide" id="enable-notifications">Enable device notifications</button><button class="secondary-button wide" id="install-app">Install app</button><button class="text-button wide" id="sign-out">Sign out</button></article>
       </div>
     </section>
@@ -272,6 +275,9 @@
 
   <dialog id="manage-dialog">
     <form id="manage-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Access setup</p><h2 id="manage-title">Add</h2></div><button class="icon-button" type="button" data-close-manage>x</button></div><div id="manage-fields" class="form-stack"></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-manage>Cancel</button><button class="primary-button">Save</button></div></form>
+  </dialog>
+  <dialog id="signup-dialog">
+    <form id="signup-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Request access</p><h2>Sign Up</h2></div><button class="icon-button" type="button" data-close-signup>x</button></div><div class="form-stack"><label>Display name<input id="signup-name" required></label><label>Username<input id="signup-username" autocomplete="username" required></label><label>PIN<input id="signup-pin" type="password" inputmode="numeric" minlength="4" autocomplete="new-password" required></label><label>Requested role<select id="signup-role"><option>Director</option><option>Coach</option><option>Parent</option><option>Player</option></select></label></div><div class="dialog-actions"><button class="secondary-button" type="button" data-close-signup>Cancel</button><button class="primary-button">Create pending account</button></div></form>
   </dialog>
 
   <div class="toast" id="toast"></div>

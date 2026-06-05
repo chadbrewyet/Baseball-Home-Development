@@ -1,7 +1,7 @@
 const ClubhouseDB = (() => {
   const DB_NAME = "clubhouse-baseball";
-  const VERSION = 1;
-  const STORES = ["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","playerData","alerts","decisions","meta"];
+  const VERSION = 2;
+  const STORES = ["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","playerData","alerts","decisions","meta","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests"];
   let db;
   const open = () => new Promise((resolve,reject) => {
     const req=indexedDB.open(DB_NAME,VERSION);
@@ -17,19 +17,13 @@ const ClubhouseDB = (() => {
   async function hashPin(pin,salt=crypto.randomUUID()){const bytes=new TextEncoder().encode(`${salt}:${pin}`),hash=await crypto.subtle.digest("SHA-256",bytes);return {salt,hash:[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("")}}
   async function verifyPin(pin,user){return (await hashPin(pin,user.pinSalt)).hash===user.pinHash}
   async function hasSetup(){return Boolean(await get("meta","setup"))}
-  async function createSetup(ownerName,pin,playerName,legacyData){
-    const ownerId=id("user"),playerId=id("player"),playerUserId=id("user"),teamId=id("team"),pinData=await hashPin(pin);
-    await put("users",{id:ownerId,name:ownerName,pinSalt:pinData.salt,pinHash:pinData.hash,owner:true,active:true,roles:["Super User"],lastLoginAt:null,loginCount:0});
-    const playerPin=await hashPin("0000");await put("users",{id:playerUserId,name:playerName,pinSalt:playerPin.salt,pinHash:playerPin.hash,owner:false,active:true,roles:["Player"]});
-    await put("players",{id:playerId,name:playerName,userId:playerUserId,active:true,priorityTeamId:teamId});
-    await put("teams",{id:teamId,name:"Primary Team",season:new Date().getFullYear().toString(),equipment:[]});
-    await put("teamMemberships",{id:id("membership"),playerId,teamId,active:true,priority:1});
-    await put("userPlayerAccess",{id:id("access"),userId:ownerId,playerId,permission:"manage"});
-    await put("userPlayerAccess",{id:id("access"),userId:playerUserId,playerId,permission:"self"});
-    await put("userTeamRoles",{id:id("role"),userId:ownerId,teamId,coach:true,scheduler:true});
-    await put("playerData",{id:playerId,data:legacyData});
-    await put("meta",{id:"setup",ownerId,created:new Date().toISOString(),version:1});
-    return {ownerId,playerId};
+  async function seedInitialSuperUser(){
+    if(await hasSetup())return;
+    const orgId=id("org"),ownerId=id("user"),pinData=await hashPin("244466666888888888");
+    await put("organizations",{id:orgId,name:"Default Organization",settings:{directorApprovalRequiredForCoachPlans:false},equipment:[],active:true,created:new Date().toISOString()});
+    await put("users",{id:ownerId,username:"Super User",name:"Super User",pinSalt:pinData.salt,pinHash:pinData.hash,owner:true,active:true,status:"active",roles:["Super User"],lastLoginAt:null,loginCount:0});
+    await put("meta",{id:"setup",ownerId,defaultOrganizationId:orgId,created:new Date().toISOString(),version:2});
   }
-  return {open,all,get,put,remove,id,hashPin,verifyPin,hasSetup,createSetup};
+  async function createSetup(){await seedInitialSuperUser()}
+  return {open,all,get,put,remove,id,hashPin,verifyPin,hasSetup,seedInitialSuperUser,createSetup};
 })();
