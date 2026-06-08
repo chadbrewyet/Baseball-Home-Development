@@ -437,6 +437,7 @@ async function migrateAssociations(oldMemberships=[],oldTeamRoles=[]){
     if(!existing)householdMemberships.push(next);
   };
   if(!organizations.length){
+    if(!isSuperUser(currentUser))return;
     const setup=await ClubhouseDB.get("meta","setup"),orgId=setup?.defaultOrganizationId||ClubhouseDB.id("org");
     await ClubhouseDB.put("organizations",{id:orgId,name:"Default Organization",settings:{directorApprovalRequiredForCoachPlans:false},equipment:[],active:true,created:new Date().toISOString()});
     if(setup)await ClubhouseDB.put("meta",{...setup,defaultOrganizationId:orgId,version:2});
@@ -544,8 +545,8 @@ async function boot(){
   await ClubhouseDB.open();
   const authUser=await ClubhouseDB.currentAuthUser();
   if(!authUser){showAuth();loginScreen();return}
-  await ClubhouseDB.ensureAuthProfile(authUser);
-  await ClubhouseDB.seedInitialSuperUser();
+  currentUser=await ClubhouseDB.ensureAuthProfile(authUser);
+  if(isSuperUser(currentUser))await ClubhouseDB.seedInitialSuperUser();
   await refreshRecords();
   const saved=users.find(u=>u.id===authUser.id);
   if(!saved){showAuth();loginScreen();return}
@@ -554,7 +555,7 @@ async function boot(){
 function loginScreen(message=""){
   document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Supabase login</p><h1>Clubhouse Login</h1>${message?`<p class="auth-error">${message}</p>`:""}<form id="login-form" class="form-stack"><label>Email<input id="login-username" type="email" autocomplete="email" required></label><label>Password<input id="login-pin" type="password" autocomplete="current-password" required></label><button class="primary-button">Enter clubhouse</button><button class="text-button" type="button" id="open-signup">Sign Up</button></form>`;
   document.querySelector("#open-signup").onclick=()=>openSignupDialog();
-  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();try{const email=document.querySelector("#login-username").value.trim(),password=document.querySelector("#login-pin").value,{data,error}=await ClubhouseDB.signIn(email,password);if(error){loginScreen(error.message);return}const profile=await ClubhouseDB.ensureAuthProfile(data.user);await refreshRecords();actualUser=users.find(u=>u.id===profile.id)||profile;currentUser=actualUser;await recordLogin(actualUser);localStorage.setItem(ACTIVE_USER_KEY,actualUser.id);localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()}catch(err){console.error(err);loginScreen(err.message||"Login failed. Please try again.")}};
+  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();try{const email=document.querySelector("#login-username").value.trim(),password=document.querySelector("#login-pin").value,{data,error}=await ClubhouseDB.signIn(email,password);if(error){loginScreen(error.message);return}const profile=await ClubhouseDB.ensureAuthProfile(data.user);currentUser=profile;await refreshRecords();actualUser=users.find(u=>u.id===profile.id)||profile;currentUser=actualUser;await recordLogin(actualUser);localStorage.setItem(ACTIVE_USER_KEY,actualUser.id);localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()}catch(err){console.error(err);loginScreen(err.message||"Login failed. Please try again.")}};
 }
 function openSignupDialog(){
   document.querySelector("#signup-dialog").showModal();
