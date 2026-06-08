@@ -642,8 +642,9 @@ async function createAssociatedRecord(type,name,email=""){
 async function promoteToSuperUser(userId){
   if(!isSuperUser(actualUser)||isMasquerading()){alert("Only a non-masquerading Super User can add another Super User.");return}
   const user=users.find(u=>u.id===userId);if(!user)return;
-  user.roles=[...new Set([...normalizeRoles(user),"Super User"])];user.status="active";user.requestedRole="";
+  user.roles=[...new Set([...normalizeRoles(user),"Super User"])];user.status="active";user.requestedRole="";user.allowSuperUserWrite=true;
   await ClubhouseDB.put("users",user);
+  delete user.allowSuperUserWrite;
 }
 function openLinkRecord(type){
   const meta=recordMeta(type);if(!meta)return;

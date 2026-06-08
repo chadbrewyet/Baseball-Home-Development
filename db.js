@@ -51,7 +51,11 @@ const ClubhouseDB = (() => {
   };
   const toRemote=(name,value)=>{
     const v={...value};
-    if(name==="users")return {id:v.id,auth_user_id:v.authUserId||(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(v.id)?v.id:null),username:v.username||"",display_name:v.name||v.username||"User",status:v.status||"active",is_super_user:(v.roles||[]).includes("Super User"),updated_at:new Date().toISOString()};
+    if(name==="users"){
+      const row={id:v.id,auth_user_id:v.authUserId||(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(v.id)?v.id:null),username:v.username||"",display_name:v.name||v.username||"User",status:v.status||"active",updated_at:new Date().toISOString()};
+      if(v.allowSuperUserWrite)row.is_super_user=(v.roles||[]).includes("Super User");
+      return row;
+    }
     if(name==="organizations")return {id:v.id,name:v.name,settings:v.settings||{},equipment:v.equipment||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
     if(name==="teams")return {id:v.id,name:v.name,season:v.season,organization_id:v.organizationId,equipment:v.equipment||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
     if(name==="households")return {id:v.id,name:v.name,owner_user_id:v.ownerUserId,equipment:v.equipment||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
