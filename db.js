@@ -25,7 +25,8 @@ const ClubhouseDB = (() => {
   const localPut=(name,value)=>new Promise((res,rej)=>{const r=store(name,"readwrite").put(value);r.onsuccess=()=>res(value);r.onerror=()=>rej(r.error)});
   const localRemove=(name,itemId)=>new Promise((res,rej)=>{const r=store(name,"readwrite").delete(itemId);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)});
   const authed = async () => Boolean((await sb?.auth.getSession())?.data?.session);
-  const REMOTE_TABLES={users:"profiles",organizations:"organizations",teams:"teams",households:"households",players:"players",organizationRoles:"organization_roles",teamCoachRoles:"team_coach_roles",householdMemberships:"household_memberships",playerTeamMemberships:"player_team_memberships",recordAssociations:"record_associations",accessRequests:"access_requests",invitations:"invitations"};
+  const REMOTE_TABLES={users:"profiles",organizations:"organizations",teams:"teams",households:"households",players:"players",userPlayerAccess:"user_player_access",organizationRoles:"organization_roles",teamCoachRoles:"team_coach_roles",householdMemberships:"household_memberships",playerTeamMemberships:"player_team_memberships",recordAssociations:"record_associations",accessRequests:"access_requests",invitations:"invitations",playerData:"player_training_state",events:"calendar_events",alerts:"alerts",decisions:"admin_decisions",playerTags:"player_tags"};
+  const REMOTE_KEYS={playerData:"player_id"};
   const fromRemote=(name,row)=>{
     if(!row)return row;
     if(name==="users")return {id:row.id,authUserId:row.auth_user_id,username:row.username,name:row.display_name,active:row.status!=="inactive",status:row.status,roles:row.is_super_user?["Super User"]:[],loginCount:0,lastLoginAt:null};
@@ -33,6 +34,7 @@ const ClubhouseDB = (() => {
     if(name==="teams")return {id:row.id,name:row.name,season:row.season,organizationId:row.organization_id,equipment:row.equipment||[],active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="households")return {id:row.id,name:row.name,ownerUserId:row.owner_user_id,equipment:row.equipment||[],active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="players")return {id:row.id,name:row.name,userId:row.user_id,active:row.active,createdBy:row.created_by,created:row.created_at};
+    if(name==="userPlayerAccess")return {id:row.id,userId:row.user_id,playerId:row.player_id,permission:row.permission,active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="organizationRoles")return {id:row.id,userId:row.user_id,organizationId:row.organization_id,role:row.role,active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="teamCoachRoles")return {id:row.id,userId:row.user_id,teamId:row.team_id,coachType:row.coach_type,permissions:row.permissions||{},specializations:row.specializations||["All"],active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="householdMemberships")return {id:row.id,householdId:row.household_id,userId:row.user_id,playerId:row.player_id,role:row.role,active:row.active,createdBy:row.created_by,created:row.created_at};
@@ -40,6 +42,11 @@ const ClubhouseDB = (() => {
     if(name==="recordAssociations")return {id:row.id,userId:row.user_id,recordType:row.record_type,recordId:row.record_id,role:row.role,active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="accessRequests")return {id:row.id,userId:row.user_id,recordType:row.record_type,recordId:row.record_id,status:row.status,decidedBy:row.decided_by,decidedAt:row.decided_at,created:row.created_at};
     if(name==="invitations")return {id:row.id,email:row.email,recordType:row.record_type,recordId:row.record_id,role:row.role,status:row.status,invitedBy:row.invited_by,acceptedBy:row.accepted_by,acceptedAt:row.accepted_at,created:row.created_at};
+    if(name==="playerData")return {id:row.player_id,data:row.data||{}};
+    if(name==="events")return {...(row.data||{}),id:row.id,playerId:row.player_id,teamId:row.team_id,title:row.title,type:row.type,workload:row.workload,date:row.event_date,repeat:row.repeat,status:row.status,createdBy:row.created_by,created:row.created_at};
+    if(name==="alerts")return {...(row.data||{}),id:row.id,playerId:row.player_id,type:row.type,title:row.title,message:row.message,status:row.status,read:row.read,createdBy:row.created_by,created:row.created_at};
+    if(name==="decisions")return {...(row.data||{}),id:row.id,playerId:row.player_id,eventId:row.event_id,alertId:row.alert_id,date:row.decision_date,action:row.action,userId:row.created_by,created:row.created_at};
+    if(name==="playerTags")return {id:row.id,playerId:row.player_id,tags:row.tags||[],active:row.active,createdBy:row.created_by,created:row.created_at};
     return row;
   };
   const toRemote=(name,value)=>{
@@ -49,6 +56,7 @@ const ClubhouseDB = (() => {
     if(name==="teams")return {id:v.id,name:v.name,season:v.season,organization_id:v.organizationId,equipment:v.equipment||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
     if(name==="households")return {id:v.id,name:v.name,owner_user_id:v.ownerUserId,equipment:v.equipment||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
     if(name==="players")return {id:v.id,name:v.name,user_id:v.userId,active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
+    if(name==="userPlayerAccess")return {id:v.id,user_id:v.userId,player_id:v.playerId,permission:v.permission||"manage",active:v.active!==false,created_by:v.createdBy};
     if(name==="organizationRoles")return {id:v.id,user_id:v.userId,organization_id:v.organizationId,role:v.role||"director",active:v.active!==false,created_by:v.createdBy};
     if(name==="teamCoachRoles")return {id:v.id,user_id:v.userId,team_id:v.teamId,coach_type:v.coachType||"assistant",permissions:v.permissions||{},specializations:v.specializations||["All"],active:v.active!==false,created_by:v.createdBy};
     if(name==="householdMemberships")return {id:v.id,household_id:v.householdId,user_id:v.userId||null,player_id:v.playerId||null,role:v.role||"member",active:v.active!==false,created_by:v.createdBy};
@@ -56,13 +64,18 @@ const ClubhouseDB = (() => {
     if(name==="recordAssociations")return {id:v.id,user_id:v.userId,record_type:v.recordType,record_id:v.recordId,role:v.role||"member",active:v.active!==false,created_by:v.createdBy};
     if(name==="accessRequests")return {id:v.id,user_id:v.userId,record_type:v.recordType,record_id:v.recordId,status:v.status||"pending",decided_by:v.decidedBy,decided_at:v.decidedAt};
     if(name==="invitations")return {id:v.id,email:v.email,record_type:v.recordType,record_id:v.recordId,role:v.role,status:v.status||"pending",invited_by:v.invitedBy,accepted_by:v.acceptedBy,accepted_at:v.acceptedAt};
+    if(name==="playerData")return {player_id:v.id,data:v.data||{},updated_at:new Date().toISOString()};
+    if(name==="events")return {id:v.id,player_id:v.playerId||null,team_id:v.teamId||null,title:v.title||"Event",type:v.type,workload:v.workload,event_date:v.date||null,repeat:v.repeat,status:v.status||"active",assigned_session_id:v.assignedSessionId,data:v,created_by:v.createdBy,updated_at:new Date().toISOString()};
+    if(name==="alerts")return {id:v.id,player_id:v.playerId||null,type:v.type,title:v.title||"Alert",message:v.message,status:v.status||"pending",read:Boolean(v.read),data:v,created_by:v.createdBy,updated_at:new Date().toISOString()};
+    if(name==="decisions")return {id:v.id,player_id:v.playerId||null,event_id:v.eventId||null,alert_id:v.alertId||null,decision_date:v.date||null,action:v.action||"unknown",data:v,created_by:v.userId||v.createdBy};
+    if(name==="playerTags")return {id:v.id,player_id:v.playerId,tags:v.tags||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
     return v;
   };
 
   async function all(name){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
-        const {data,error}=await sb.from(REMOTE_TABLES[name]).select("*").order("id");
+        const {data,error}=await sb.from(REMOTE_TABLES[name]).select("*").order(REMOTE_KEYS[name]||"id");
         if(error)throw error;
         return data.map(row=>fromRemote(name,row));
       }
@@ -75,7 +88,7 @@ const ClubhouseDB = (() => {
   async function get(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
-        const {data,error}=await sb.from(REMOTE_TABLES[name]).select("*").eq("id",itemId).maybeSingle();
+        const {data,error}=await sb.from(REMOTE_TABLES[name]).select("*").eq(REMOTE_KEYS[name]||"id",itemId).maybeSingle();
         if(error)throw error;
         return fromRemote(name,data);
       }
@@ -103,7 +116,7 @@ const ClubhouseDB = (() => {
   async function remove(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
-        const {error}=await sb.from(REMOTE_TABLES[name]).delete().eq("id",itemId);
+        const {error}=await sb.from(REMOTE_TABLES[name]).delete().eq(REMOTE_KEYS[name]||"id",itemId);
         if(error)throw error;
         return;
       }
