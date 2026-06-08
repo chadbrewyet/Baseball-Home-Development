@@ -117,6 +117,14 @@ const ClubhouseDB = (() => {
     }
     return localPut(name,value);
   }
+  async function createRecordWithAdminAssociation(type,recordId,name,organizationId=null){
+    if(hasRemote()&&await authed()){
+      const {error}=await sb.rpc("create_record_with_admin_association",{p_record_type:type,p_record_id:recordId,p_name:name,p_organization_id:organizationId});
+      if(error)throw error;
+      return true;
+    }
+    return false;
+  }
   async function remove(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
@@ -193,5 +201,5 @@ const ClubhouseDB = (() => {
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation};
 })();

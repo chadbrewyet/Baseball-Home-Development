@@ -626,10 +626,13 @@ async function createAssociatedRecord(type,name,email=""){
     else await ClubhouseDB.put("invitations",{id:ClubhouseDB.id("invite"),email:normalized,name,recordType:"superUser",role:"Super User",status:"pending",invitedBy:createdBy,created:now});
     return;
   }else if(type==="organization"){
+    if(await ClubhouseDB.createRecordWithAdminAssociation(type,id,name))return;
     await ClubhouseDB.put("organizations",{id,name,settings:{directorApprovalRequiredForCoachPlans:false},equipment:[],active:true,created:now,createdBy});
   }else if(type==="team"){
+    if(await ClubhouseDB.createRecordWithAdminAssociation(type,id,name,defaultOrg()?.id))return;
     await ClubhouseDB.put("teams",{id,name,season:String(new Date().getFullYear()),organizationId:defaultOrg()?.id,equipment:[],active:true,created:now,createdBy});
   }else if(type==="household"){
+    if(await ClubhouseDB.createRecordWithAdminAssociation(type,id,name))return;
     await ClubhouseDB.put("households",{id,name,ownerUserId:currentUser.id,equipment:[],active:true,created:now,createdBy});
   }else if(type==="coach"){
     await ClubhouseDB.put("users",{id,name,username:"",active:true,status:"record_only",roles:["Coach"],recordType:"coach",created:now,createdBy,loginCount:0,lastLoginAt:null});
