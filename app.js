@@ -106,6 +106,7 @@ let state = loadState();
 let actualUser=null,currentUser=null,currentPlayer=null,users=[],players=[],teams=[],memberships=[],accessRecords=[],teamRoles=[],events=[],alerts=[],decisions=[];
 let organizations=[],households=[],organizationRoles=[],teamCoachRoles=[],householdMemberships=[],playerTeamMemberships=[],playerTags=[],accessRequests=[];
 let recordAssociations=[],invitations=[];
+let accessRequestDetails=[];
 let deferredInstallPrompt=null;
 let libraryFilter = "All";
 
@@ -225,6 +226,17 @@ function isRecordAdmin(type,recordId,userId=currentUser?.id){return isSuperUser(
 function visibleRecords(type,userId=currentUser?.id){if(isSuperUser())return recordsForType(type);const ids=userRecordAssociations(userId,type).map(a=>a.recordId);return recordsForType(type).filter(r=>ids.includes(r.id)||(type==="player"&&r.userId===userId))}
 function pendingRequestsForAdmin(){return accessRequests.filter(r=>r.status==="pending"&&isRecordAdmin(r.recordType,r.recordId))}
 function pendingApprovalCount(){return pendingRequestsForAdmin().length}
+function requestDetail(req){
+  const detail=accessRequestDetails.find(d=>d.id===req.id)||{};
+  const user=users.find(u=>u.id===req.userId),meta=recordMeta(req.recordType),rec=recordsForType(req.recordType).find(x=>x.id===req.recordId);
+  return {
+    requesterName:detail.requester_name||user?.name||"Unknown user",
+    requesterEmail:detail.requester_email||user?.username||"No email available",
+    recordType:meta?.label||req.recordType||"Record",
+    recordName:detail.record_name||recordName(rec)||"Unknown record",
+    recordId:req.recordId
+  };
+}
 function installGuidance(){if(deferredInstallPrompt)return "Install app";return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)?"Add to Home Screen":"Install app"}
 function renderReadiness(){Object.entries(FEELINGS).forEach(([key,choices])=>{document.querySelector(`#${key}-options`).innerHTML=choices.map(([label,value])=>`<button type="button" class="feeling-choice ${state.readiness[key]===value?"selected":""}" data-feeling="${key}" data-value="${value}">${feelingSvg(value,key==="soreness")}<span>${label}</span></button>`).join("")});document.querySelector("#readiness-detail-wrap").hidden=state.readiness.arm>1&&state.readiness.soreness<7;document.querySelector("#readiness-score").textContent=((+state.readiness.energy + +state.readiness.arm + (11- +state.readiness.soreness))/3).toFixed(1)}
 function renderPlan(){
@@ -374,7 +386,7 @@ function recordActions(record,type){const admin=isRecordAdmin(type,record.id),en
 function recordTable(type,items,adminMode=false){const rows=items.map(r=>`<tr><td><strong>${esc(recordName(r))}</strong></td><td><code>${esc(r.id)}</code></td><td>${type==="coach"?esc(rolesFor(r).join(", ")||r.status||""):esc(r.season||r.status||"")}</td><td>${adminMode?adminRecordActions(r,type):recordActions(r,type)}</td></tr>`).join("");return `<div class="table-wrap"><table class="profile-table"><thead><tr><th>Name</th><th>ID</th><th>Details</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
 function adminRecordActions(record,type){const canMasq=["coach","player"].includes(type)||["Director","Parent","Player","Coach"].some(role=>rolesFor(record).includes(role));const canDelete=!(type==="superUser"&&record.id===actualUser?.id);return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record data-record-type="${type}" data-record-id="${esc(record.id)}">Edit</button>${type==="unassociated"?`<button class="icon-action" title="Make Super User" data-promote-super="${esc(record.id)}">Make Super</button>`:""}${canMasq&&!isSuperUser(record)?`<button class="icon-action" title="Masquerade" data-masquerade-user="${esc(record.userId||record.id)}">Masq</button>`:""}${canDelete?`<button class="icon-action danger" title="Delete" data-delete-record data-record-type="${type}" data-record-id="${esc(record.id)}">Delete</button>`:""}</div>`}
 function profileAssociationSection(meta){const items=visibleRecords(meta.type);if(!items.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Associated records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,items)}</article>`}
-function pendingRequestSection(){const reqs=pendingRequestsForAdmin();if(!reqs.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.map(r=>{const user=users.find(u=>u.id===r.userId),meta=recordMeta(r.recordType),rec=recordsForType(r.recordType).find(x=>x.id===r.recordId);return `<div class="manage-row"><div><strong>${esc(user?.name||"User")}</strong><small>Requests ${esc(meta?.label||r.recordType)} access: ${esc(recordName(rec))} (${esc(r.recordId)})</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join("")}</article>`}
+function pendingRequestSection(){const reqs=pendingRequestsForAdmin();if(!reqs.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.map(r=>{const d=requestDetail(r);return `<div class="manage-row"><div><strong>${esc(d.requesterName)}</strong><small>${esc(d.requesterEmail)}</small><small>Wants access to ${esc(d.recordType)}: ${esc(d.recordName)}</small><small>ID: ${esc(d.recordId)}</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join("")}</article>`}
 function refreshButton(){return `<button class="secondary-button refresh-button" type="button" id="refresh-profile"><span class="refresh-icon">R</span> Refresh</button>`}
 function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,recordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${sections}${appSettingsSection()}`}
 function renderAdmin(){
@@ -385,7 +397,7 @@ function renderAdmin(){
 }
 function renderAlerts(){
   const visible=alerts.filter(alertVisible).sort((a,b)=>b.created.localeCompare(a.created)),approvals=pendingRequestsForAdmin();
-  const approvalItems=approvals.map(r=>{const user=users.find(u=>u.id===r.userId),meta=recordMeta(r.recordType),rec=recordsForType(r.recordType).find(x=>x.id===r.recordId);return `<article class="agenda-item unread"><time>Pending</time><div><span class="tag">Approval</span><h3>${esc(meta?.label||r.recordType)} access request</h3><p>${esc(user?.name||"User")} requested access to ${esc(recordName(rec))} (${esc(r.recordId)})</p><div class="conflict-actions"><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div></article>`}).join("");
+  const approvalItems=approvals.map(r=>{const d=requestDetail(r);return `<article class="agenda-item unread"><time>Pending</time><div><span class="tag">Approval</span><h3>${esc(d.recordType)} access request</h3><p><strong>${esc(d.requesterName)}</strong> (${esc(d.requesterEmail)}) wants access to ${esc(d.recordName)}.</p><p><small>Record ID: ${esc(d.recordId)}</small></p><div class="conflict-actions"><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div></article>`}).join("");
   const alertItems=visible.map(a=>`<article class="agenda-item ${a.read?"":"unread"}"><time>${fmtDate(a.created.slice(0,10))}</time><div><span class="tag">${a.type}</span><h3>${a.title}</h3><p>${a.message}</p>${a.status==="pending"&&isAdmin()?`<div class="conflict-actions"><button data-pain-decision="allow" data-alert-id="${a.id}">Allow this session</button><button data-pain-decision="remove" data-alert-id="${a.id}">Remove throwing</button></div>`:""}</div></article>`).join("");
   document.querySelector("#alert-list").innerHTML=approvalItems+alertItems||`<div class="empty-state">No alerts.</div>`;
 }
@@ -414,9 +426,11 @@ function selectedVariationSession(){const b=workoutFor(document.querySelector("#
 function updateVariationWarnings(){const box=document.querySelector("#variation-warnings"),session=selectedVariationSession(),issues=sessionIssues(session);box.innerHTML=issues.length?`<div class="builder-warnings">${issues.map(i=>`<p class="${i.type}">${i.text}</p>`).join("")}</div>`:`<div class="builder-ready">Ready to save. All selected drills are approved and equipment-ready.</div>`}
 async function refreshRecords(){
   [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations"].map(ClubhouseDB.all));
+  accessRequestDetails=await ClubhouseDB.accessRequestAdminDetails();
   const oldMemberships=await ClubhouseDB.all("teamMemberships"),oldTeamRoles=await ClubhouseDB.all("userTeamRoles");
   await migrateAssociations(oldMemberships,oldTeamRoles);
   [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations"].map(ClubhouseDB.all));
+  accessRequestDetails=await ClubhouseDB.accessRequestAdminDetails();
   users=users.map(u=>({...u,username:u.username||u.name,roles:normalizeRoles(u),status:u.status||"active",loginCount:u.loginCount||0,lastLoginAt:u.lastLoginAt||null}));
   memberships=playerTeamMemberships;
   teamRoles=teamCoachRoles.map(r=>({id:r.id,userId:r.userId,teamId:r.teamId,coach:true,scheduler:true,coachType:r.coachType,specializations:r.specializations,active:r.active}));

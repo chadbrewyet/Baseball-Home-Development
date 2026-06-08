@@ -165,6 +165,14 @@ const ClubhouseDB = (() => {
     }
     return false;
   }
+  async function accessRequestAdminDetails(){
+    if(hasRemote()&&await authed()){
+      const {data,error}=await sb.rpc("access_request_admin_details");
+      if(error)throw error;
+      return data||[];
+    }
+    return [];
+  }
   async function remove(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
@@ -242,5 +250,5 @@ const ClubhouseDB = (() => {
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations,accessRequestAdminDetails};
 })();
