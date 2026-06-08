@@ -554,7 +554,7 @@ async function boot(){
 function loginScreen(message=""){
   document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Supabase login</p><h1>Clubhouse Login</h1>${message?`<p class="auth-error">${message}</p>`:""}<form id="login-form" class="form-stack"><label>Email<input id="login-username" type="email" autocomplete="email" required></label><label>Password<input id="login-pin" type="password" autocomplete="current-password" required></label><button class="primary-button">Enter clubhouse</button><button class="text-button" type="button" id="open-signup">Sign Up</button></form>`;
   document.querySelector("#open-signup").onclick=()=>openSignupDialog();
-  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();const email=document.querySelector("#login-username").value.trim(),password=document.querySelector("#login-pin").value,{data,error}=await ClubhouseDB.signIn(email,password);if(error){loginScreen(error.message);return}const profile=await ClubhouseDB.ensureAuthProfile(data.user);await refreshRecords();actualUser=users.find(u=>u.id===profile.id)||profile;currentUser=actualUser;await recordLogin(actualUser);localStorage.setItem(ACTIVE_USER_KEY,actualUser.id);localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()};
+  document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();try{const email=document.querySelector("#login-username").value.trim(),password=document.querySelector("#login-pin").value,{data,error}=await ClubhouseDB.signIn(email,password);if(error){loginScreen(error.message);return}const profile=await ClubhouseDB.ensureAuthProfile(data.user);await refreshRecords();actualUser=users.find(u=>u.id===profile.id)||profile;currentUser=actualUser;await recordLogin(actualUser);localStorage.setItem(ACTIVE_USER_KEY,actualUser.id);localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()}catch(err){console.error(err);loginScreen(err.message||"Login failed. Please try again.")}};
 }
 function openSignupDialog(){
   document.querySelector("#signup-dialog").showModal();
@@ -835,5 +835,5 @@ document.querySelector("#page-eyebrow").textContent=new Date().toLocaleDateStrin
 document.querySelectorAll("#phase-filters .filter").forEach(b=>b.classList.toggle("active",b.dataset.phase===state.currentPhase));
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e});
 if("serviceWorker"in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("./sw.js");
-boot().catch(err=>{console.error(err);showAuth();document.querySelector("#auth-card").innerHTML="<h1>Unable to start Clubhouse</h1><p>Serve the app from localhost or HTTPS and reload.</p>"});
+boot().catch(err=>{console.error(err);showAuth();document.querySelector("#auth-card").innerHTML=`<h1>Unable to start Clubhouse</h1><p>${esc(err.message||"Serve the app from localhost or HTTPS and reload.")}</p><button class="primary-button" type="button" onclick="location.reload()">Reload</button>`});
 
