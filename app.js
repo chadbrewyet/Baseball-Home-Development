@@ -680,15 +680,19 @@ async function deleteRecord(type,recordId){
 }
 async function approveRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!req||!isRecordAdmin(req.recordType,req.recordId))return;
+  if(await ClubhouseDB.decideRecordLinkRequest(id,true))return;
   await grantRecordAccess(req.userId,req.recordType,req.recordId,"member");
   req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function denyRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!req||!isRecordAdmin(req.recordType,req.recordId))return;
+  if(await ClubhouseDB.decideRecordLinkRequest(id,false))return;
   req.status="denied";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function inviteToRecord(type,recordId,email){
   if(!isRecordAdmin(type,recordId)){alert("Only a record administrator can invite users.");return}
+  const remoteResult=await ClubhouseDB.inviteOrLinkUserToRecord(type,recordId,email);
+  if(remoteResult)return remoteResult;
   const normalized=email.toLowerCase(),existing=users.find(u=>u.username?.toLowerCase()===normalized);
   if(existing){
     existing.status="active";await ClubhouseDB.put("users",existing);
@@ -803,7 +807,11 @@ document.addEventListener("submit",async e=>{
   }
   if(e.target.id==="link-form"){
     e.preventDefault();
-    const type=document.querySelector("#link-type").value,recordId=document.querySelector("#link-record-id").value.trim(),record=recordsForType(type).find(r=>r.id===recordId);
+    const type=document.querySelector("#link-type").value,recordId=document.querySelector("#link-record-id").value.trim(),remoteResult=await ClubhouseDB.requestRecordLink(type,recordId);
+    if(remoteResult){
+      document.querySelector("#link-dialog").close();await refreshRecords();renderAll();showToast(remoteResult==="already_linked"?"Already linked":"Link request submitted");return;
+    }
+    const record=recordsForType(type).find(r=>r.id===recordId);
     if(!record){alert("No record found with that ID.");return}
     if(assocFor(currentUser.id,type,recordId)){alert("This account is already linked to that record.");return}
     await ClubhouseDB.put("accessRequests",{id:ClubhouseDB.id("request"),userId:currentUser.id,recordType:type,recordId,status:"pending",created:new Date().toISOString()});

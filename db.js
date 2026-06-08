@@ -125,6 +125,38 @@ const ClubhouseDB = (() => {
     }
     return false;
   }
+  async function requestRecordLink(type,recordId){
+    if(hasRemote()&&await authed()){
+      const {data,error}=await sb.rpc("request_record_link",{p_record_type:type,p_record_id:recordId});
+      if(error)throw error;
+      return data;
+    }
+    return null;
+  }
+  async function inviteOrLinkUserToRecord(type,recordId,email){
+    if(hasRemote()&&await authed()){
+      const {data,error}=await sb.rpc("invite_or_link_user_to_record",{p_record_type:type,p_record_id:recordId,p_email:email});
+      if(error)throw error;
+      return data;
+    }
+    return null;
+  }
+  async function acceptPendingInvitations(){
+    if(hasRemote()&&await authed()){
+      const {data,error}=await sb.rpc("accept_pending_invitations_for_current_user");
+      if(error)throw error;
+      return data||0;
+    }
+    return 0;
+  }
+  async function decideRecordLinkRequest(requestId,approve){
+    if(hasRemote()&&await authed()){
+      const {error}=await sb.rpc("decide_record_link_request",{p_request_id:requestId,p_approve:Boolean(approve)});
+      if(error)throw error;
+      return true;
+    }
+    return false;
+  }
   async function remove(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
@@ -187,10 +219,11 @@ const ClubhouseDB = (() => {
   async function ensureAuthProfile(authUser,name=authUser?.user_metadata?.name){
     if(!authUser)return null;
     const existing=await get("users",authUser.id);
-    if(existing)return existing;
+    if(existing){await acceptPendingInvitations();return await get("users",authUser.id)}
     const hasUsers=(await all("users")).length>0;
     const user={id:authUser.id,authUserId:authUser.id,username:authUser.email,name:name||authUser.email,active:true,status:hasUsers?"pending_association":"active",roles:hasUsers?[]:["Super User"],loginCount:0,lastLoginAt:null};
     await put("users",user);
+    await acceptPendingInvitations();
     const pendingInvites=(await all("invitations")).filter(i=>i.email?.toLowerCase()===authUser.email?.toLowerCase()&&i.status==="pending");
     for(const invite of pendingInvites){
       if(invite.recordType==="superUser"){
@@ -201,5 +234,5 @@ const ClubhouseDB = (() => {
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest};
 })();
