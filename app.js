@@ -686,6 +686,16 @@ async function boot(){
   if(!saved){showAuth();loginScreen();return}
   actualUser=saved;currentUser=users.find(u=>u.id===localStorage.getItem(EFFECTIVE_USER_KEY))||saved;localStorage.setItem(ACTIVE_USER_KEY,saved.id);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
 }
+async function disableOfflineCache(){
+  if("serviceWorker"in navigator){
+    const regs=await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r=>r.unregister()));
+  }
+  if("caches"in window){
+    const keys=await caches.keys();
+    await Promise.all(keys.map(k=>caches.delete(k)));
+  }
+}
 function loginScreen(message=""){
   document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Supabase login</p><h1>Clubhouse Login</h1>${message?`<p class="auth-error">${message}</p>`:""}<form id="login-form" class="form-stack"><label>Email<input id="login-username" type="email" autocomplete="email" required></label><label>Password<input id="login-pin" type="password" autocomplete="current-password" required></label><label class="check-label"><input id="login-remember" type="checkbox"><span>Remember me on this device</span></label><button class="primary-button">Enter clubhouse</button><button class="text-button" type="button" id="open-signup">Sign Up</button></form>`;
   document.querySelector("#open-signup").onclick=()=>openSignupDialog();
@@ -994,6 +1004,5 @@ document.querySelector("#test-form").onsubmit=e=>{e.preventDefault();const val=i
 document.querySelector("#page-eyebrow").textContent=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
 document.querySelectorAll("#phase-filters .filter").forEach(b=>b.classList.toggle("active",b.dataset.phase===state.currentPhase));
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e});
-if("serviceWorker"in navigator&&location.protocol!=="file:")navigator.serviceWorker.register("./sw.js");
-boot().catch(err=>{console.error(err);showAuth();document.querySelector("#auth-card").innerHTML=`<h1>Unable to start Clubhouse</h1><p>${esc(err.message||"Serve the app from localhost or HTTPS and reload.")}</p><button class="primary-button" type="button" onclick="location.reload()">Reload</button>`});
+disableOfflineCache().catch(console.warn).finally(()=>boot().catch(err=>{console.error(err);showAuth();document.querySelector("#auth-card").innerHTML=`<h1>Unable to start Clubhouse</h1><p>${esc(err.message||"Serve the app from localhost or HTTPS and reload.")}</p><button class="primary-button" type="button" onclick="location.reload()">Reload</button>`}));
 
