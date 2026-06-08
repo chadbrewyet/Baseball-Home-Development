@@ -194,6 +194,19 @@ textarea { resize: vertical; }
 .refresh-button.refreshing .refresh-icon { animation: spin .45s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .profile-stack { display: grid; gap: 18px; }
+.association-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.association-tab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); padding: 10px 12px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.association-tab.active { color: var(--green-dark); border-bottom-color: var(--green); }
+.association-pane { display: none; }
+.association-pane.active { display: block; }
+.association-list { display: grid; gap: 8px; }
+.association-row, .association-member { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 7px; padding: 12px; background: #f7f9fb; }
+.association-row strong, .association-row small, .association-member strong, .association-member small { display: block; }
+.association-row small, .association-member small { color: var(--muted); font-size: 10px; margin-top: 3px; }
+.association-dialog-body { padding: 25px; display: grid; gap: 18px; }
+.association-detail-section { display: grid; gap: 8px; margin-top: 14px; }
+.association-detail-section h3 { margin: 0; font: 600 17px Oswald; text-transform: uppercase; }
+.empty-state.compact { padding: 18px; }
 .table-wrap { overflow-x: auto; }
 .profile-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .profile-table th { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; text-align: left; }

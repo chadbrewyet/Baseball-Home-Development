@@ -279,6 +279,12 @@
   <dialog id="invite-dialog">
     <form id="invite-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">Invite</p><h2 id="invite-title">Invite User</h2></div><button class="icon-button" type="button" data-close-invite>x</button></div><input id="invite-type" type="hidden"><input id="invite-record-id" type="hidden"><label>Email address<input id="invite-email" type="email" autocomplete="email" required></label><p class="panel-copy">Existing accounts are linked immediately. New-account email delivery requires a Supabase Edge Function later; this app stores the invitation so it is applied automatically after sign-up.</p><div class="dialog-actions"><button class="secondary-button" type="button" data-close-invite>Cancel</button><button class="primary-button">Invite</button></div></form>
   </dialog>
+  <dialog id="association-dialog" class="wide-dialog">
+    <div class="association-dialog-body">
+      <div class="dialog-heading"><div><p class="eyebrow" id="association-eyebrow">Association</p><h2 id="association-title">Details</h2></div><button class="icon-button" type="button" data-close-association>x</button></div>
+      <div id="association-detail"></div>
+    </div>
+  </dialog>
   <dialog id="masquerade-shell-dialog" class="masquerade-dialog">
     <div class="masquerade-shell-heading"><strong id="masquerade-shell-title">Masquerade</strong><button class="secondary-button" type="button" id="close-masquerade-shell">Exit masquerade</button></div>
     <iframe id="masquerade-frame" title="Masquerade session"></iframe>

@@ -171,7 +171,17 @@ function sessionIssues(session){
 function renderAll(){renderSidebar();renderDashboard();renderPlan();renderLog();renderPitch();renderTests();renderLibrary();renderEquipment();renderSchedule();renderAdmin();renderAlerts();renderProgress();renderContext()}
 function renderSidebar(){const p=Math.min(100,Math.round(state.logs.length/24*100));document.querySelector("#season-percent").textContent=`${p}%`;document.querySelector("#season-meter-bar").style.width=`${p}%`;document.querySelector("#season-detail").textContent=`${state.logs.length} sessions complete`}
 function todaysWorkout(){const day=DAYS[new Date().getDay()],phase=state.currentPhase;let choices=state.workouts.filter(w=>w.phase===phase&&w.day===day);if(phase==="In Season"&&!eligibleToThrow())choices=choices.filter(w=>/Recovery|No-Throw/.test(w.name));return choices[0]||state.workouts.find(w=>w.phase===phase)}
+function noPlayerActionLabel(){return isUnassociated()?"Request access":canCreatePlayer()||isSuperUser()?"Create or link player":"Open profile"}
 function renderDashboard(){
+  if(!currentPlayer){
+    document.querySelector("#today-card").innerHTML=`<p class="eyebrow">Player setup</p><h2>No player selected</h2><p class="meta">Clubhouse is player-first. Create a player record, link an existing player, or accept an invitation before logging daily training.</p><div class="drill-preview"><span>Readiness</span><span>Training plan</span><span>Progress history</span></div><button class="primary-button" data-view-link="admin">${noPlayerActionLabel()}</button>`;
+    document.querySelector("#workload-alert").innerHTML=`<div class="workload-alert"><div><strong>Player record needed</strong>Daily training, pitch counts, and progress are saved to the selected player.</div><button class="text-button" data-view-link="admin">Profile</button></div>`;
+    document.querySelector("#stat-grid").innerHTML=[["Player","Needed","select or create"],["Daily loop","Ready","after setup"],["Training data","Protected","per player"],["Access","Structured","team and household"]].map(statCard).join("");
+    document.querySelector("#week-strip").innerHTML=`<div class="empty-state">Select a player to see the weekly training plan.</div>`;
+    document.querySelector("#balance-list").innerHTML=`<div class="empty-state">Training balance appears after player setup.</div>`;
+    renderReadiness();
+    return;
+  }
   const w=todaysWorkout(), drills=w.drillIds.map(drillFor);
   document.querySelector("#today-card").innerHTML=`<p class="eyebrow">${state.currentPhase}  /  ${w.dayType}</p><h2>${w.name}</h2><p class="meta">${w.duration} min  /  ${w.intensity}  /  ${drills.length} items</p><div class="drill-preview">${drills.slice(0,3).map(d=>`<span>${d.name}</span>`).join("")}</div><button class="primary-button" data-start-session="${w.id}">Start session</button>${canBuildTraining()?` <button class="secondary-button" data-build-variation="${w.id}">Build variation</button>`:""}`;
   const p=latestPitch(),alert=document.querySelector("#workload-alert");
@@ -355,7 +365,9 @@ function applyViewAccess(){
 }
 function renderContext(){
   document.querySelector("#avatar-initials").textContent=profileInitials(currentUser?.name);
-  document.querySelector("#context-player").innerHTML=players.filter(p=>accessiblePlayerIds().includes(p.id)).map(p=>`<option value="${p.id}" ${p.id===currentPlayer?.id?"selected":""}>${esc(p.name)}</option>`).join("");
+  const contextPlayers=players.filter(p=>accessiblePlayerIds().includes(p.id));
+  document.querySelector("#context-player").innerHTML=contextPlayers.length?contextPlayers.map(p=>`<option value="${p.id}" ${p.id===currentPlayer?.id?"selected":""}>${esc(p.name)}</option>`).join(""):`<option value="">No player linked</option>`;
+  document.querySelector("#context-player").disabled=!contextPlayers.length;
   document.querySelectorAll(".admin-nav").forEach(el=>el.hidden=true);
   document.querySelectorAll('.bottom-nav [data-view-link="admin"]').forEach(el=>el.hidden=true);
   document.querySelector("#equipment-form").hidden=!isAdmin();
@@ -409,13 +421,91 @@ function adminRecordActions(record,type){const canMasq=["coach","player"].includ
 function profileAssociationSection(meta){const items=visibleRecords(meta.type);if(!items.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Associated records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,items)}</article>`}
 function pendingRequestSection(){const reqs=pendingRequestsForAdmin();if(!reqs.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.map(r=>{const d=requestDetail(r);return `<div class="manage-row"><div><strong>${esc(d.requesterName)}</strong><small>${esc(d.requesterEmail)}</small><small>Wants access to ${esc(d.recordType)}: ${esc(d.recordName)}</small><small>ID: ${esc(d.recordId)}</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join("")}</article>`}
 function refreshButton(){return `<button class="secondary-button refresh-button" type="button" id="refresh-profile"><span class="refresh-icon">R</span> Refresh</button>`}
+const ASSOCIATION_TABS=[
+  {key:"household",label:"Household",type:"household"},
+  {key:"organization",label:"Organizations",type:"organization"},
+  {key:"team",label:"Teams",type:"team"},
+  {key:"individual",label:"Individual",type:"player"}
+];
+function associationItems(tab){
+  if(tab.key==="household")return visibleRecords("household");
+  if(tab.key==="organization")return visibleRecords("organization");
+  if(tab.key==="team")return visibleRecords("team");
+  return visibleRecords("player");
+}
+function scopedRoleLabel(type,record){
+  if(type==="household"){
+    const m=householdMemberships.find(x=>x.householdId===record.id&&x.userId===currentUser?.id&&x.active!==false);
+    return m?.role==="parent"?"Parent manager":m?"Household member":"Linked household";
+  }
+  if(type==="organization"){
+    const r=organizationRoles.find(x=>x.organizationId===record.id&&x.userId===currentUser?.id&&x.active!==false);
+    return r?.role==="director"?"Director":"Organization access";
+  }
+  if(type==="team"){
+    const r=teamCoachRoles.find(x=>x.teamId===record.id&&x.userId===currentUser?.id&&x.active!==false);
+    if(r)return `${r.coachType==="head"?"Head coach":"Assistant coach"} / ${(r.specializations||["All"]).join(", ")}`;
+    return "Team access";
+  }
+  return record.userId===currentUser?.id?"Player account":"Player access";
+}
+function associationActions(type,record){
+  const encoded=`data-association-type="${type}" data-association-id="${esc(record.id)}"`;
+  const invite=isRecordAdmin(type,record.id)||canEditRecord(type,record);
+  return `<div class="row-actions"><button class="icon-action" type="button" data-open-association ${encoded}>View</button>${invite?`<button class="icon-action" type="button" data-invite-record data-record-type="${type}" data-record-id="${esc(record.id)}">Invite</button>`:""}</div>`;
+}
+function associationList(tab){
+  const items=associationItems(tab);
+  if(!items.length)return `<div class="empty-state">No ${tab.label.toLowerCase()} associations yet.</div>`;
+  return `<div class="association-list">${items.map(item=>`<div class="association-row"><div><strong>${esc(recordName(item))}</strong><small>${esc(scopedRoleLabel(tab.type,item))}</small><small>ID: ${esc(item.id)}</small></div>${associationActions(tab.type,item)}</div>`).join("")}</div>`;
+}
+function associationsSection(){
+  return `<article class="panel associations-panel"><div class="section-heading"><div><p class="eyebrow">Scoped access</p><h2>Associations</h2></div></div><div class="association-tabs">${ASSOCIATION_TABS.map((tab,i)=>`<button class="association-tab ${i===0?"active":""}" type="button" data-association-tab="${tab.key}">${tab.label}</button>`).join("")}</div>${ASSOCIATION_TABS.map((tab,i)=>`<div class="association-pane ${i===0?"active":""}" data-association-pane="${tab.key}">${associationList(tab)}</div>`).join("")}</article>`;
+}
 function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${meta.label}s</h2></div></div>${recordTable(meta.type,recordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${sections}${appSettingsSection()}`}
 function renderAdmin(){
   if(!currentUser)return;
   document.querySelector("#profile-actions").innerHTML=isSuperUser()?"":`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button><button class="secondary-button" type="button" id="link-record-button">Link</button>`;
   if(isSuperUser()){renderSuperAdmin();return}
-  const profileSections=[RECORD_TYPES[0],RECORD_TYPES[1],RECORD_TYPES[2],RECORD_TYPES[3],{type:"parent",label:"Parent"},RECORD_TYPES[4]];
-  document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${pendingRequestSection()}${profileSections.map(profileAssociationSection).join("")}${appSettingsSection()}`;
+  document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${pendingRequestSection()}${associationsSection()}${appSettingsSection()}`;
+}
+function associationMemberRow(label,record,detail=""){
+  return `<div class="association-member"><div><strong>${esc(recordName(record))}</strong>${detail?`<small>${esc(detail)}</small>`:""}</div></div>`;
+}
+function openAssociationDetail(type,id){
+  const record=recordsForType(type).find(r=>r.id===id);if(!record)return;
+  document.querySelector("#association-eyebrow").textContent=recordMeta(type)?.label||"Association";
+  document.querySelector("#association-title").textContent=recordName(record);
+  document.querySelector("#association-detail").innerHTML=associationDetail(type,record);
+  document.querySelector("#association-dialog").showModal();
+}
+function associationSectionBlock(title,items,empty){
+  return `<section class="association-detail-section"><h3>${title}</h3>${items.length?items.join(""):`<div class="empty-state compact">${empty}</div>`}</section>`;
+}
+function associationDetail(type,record){
+  if(type==="household"){
+    const members=householdMemberships.filter(m=>m.householdId===record.id&&m.active!==false);
+    const parentRows=members.filter(m=>m.userId).map(m=>associationMemberRow("Parent",users.find(u=>u.id===m.userId)||{name:"Unknown parent"},m.role||"parent"));
+    const playerRows=members.filter(m=>m.playerId).map(m=>associationMemberRow("Player",players.find(p=>p.id===m.playerId)||{name:"Unknown player"},m.role||"player"));
+    return `${associationSectionBlock("Parents",parentRows,"No parents linked.")}${associationSectionBlock("Players",playerRows,"No players linked.")}`;
+  }
+  if(type==="organization"){
+    const orgTeams=teams.filter(t=>t.organizationId===record.id&&t.active!==false);
+    const directorRows=organizationRoles.filter(r=>r.organizationId===record.id&&r.active!==false).map(r=>associationMemberRow("Director",users.find(u=>u.id===r.userId)||{name:"Unknown director"},r.role||"director"));
+    const coachRows=teamCoachRoles.filter(r=>orgTeams.some(t=>t.id===r.teamId)&&r.active!==false).map(r=>associationMemberRow("Coach",users.find(u=>u.id===r.userId)||{name:"Unknown coach"},`${teams.find(t=>t.id===r.teamId)?.name||"Team"} / ${r.coachType||"coach"} / ${(r.specializations||["All"]).join(", ")}`));
+    const teamRows=orgTeams.map(t=>associationMemberRow("Team",t,t.season||""));
+    return `${associationSectionBlock("Directors",directorRows,"No directors linked.")}${associationSectionBlock("Coaches",coachRows,"No coaches linked.")}${associationSectionBlock("Teams",teamRows,"No teams linked.")}`;
+  }
+  if(type==="team"){
+    const coachRows=teamCoachRoles.filter(r=>r.teamId===record.id&&r.active!==false).map(r=>associationMemberRow("Coach",users.find(u=>u.id===r.userId)||{name:"Unknown coach"},`${r.coachType||"coach"} / ${(r.specializations||["All"]).join(", ")}`));
+    const teamPlayerIds=playerTeamMemberships.filter(m=>m.teamId===record.id&&m.active!==false).map(m=>m.playerId);
+    const playerRows=teamPlayerIds.map(pid=>associationMemberRow("Player",players.find(p=>p.id===pid)||{name:"Unknown player"},"player"));
+    const parentRows=playerParentUserIds(teamPlayerIds).map(uid=>associationMemberRow("Parent",users.find(u=>u.id===uid)||{name:"Unknown parent"},"household parent"));
+    return `${associationSectionBlock("Coaches",coachRows,"No coaches linked.")}${associationSectionBlock("Players",playerRows,"No players linked.")}${associationSectionBlock("Parents",parentRows,"No parents linked.")}`;
+  }
+  const player=record,playerTeams=teams.filter(t=>playerTeamMemberships.some(m=>m.playerId===player.id&&m.teamId===t.id&&m.active!==false)),playerHouseholds=households.filter(h=>householdMemberships.some(m=>m.playerId===player.id&&m.householdId===h.id&&m.active!==false));
+  const coachRows=teamCoachRoles.filter(r=>playerTeams.some(t=>t.id===r.teamId)&&r.active!==false).map(r=>associationMemberRow("Coach",users.find(u=>u.id===r.userId)||{name:"Unknown coach"},`${teams.find(t=>t.id===r.teamId)?.name||"Team"} / ${r.coachType||"coach"}`));
+  return `${associationSectionBlock("Teams",playerTeams.map(t=>associationMemberRow("Team",t,t.season||"")),"No teams linked.")}${associationSectionBlock("Households",playerHouseholds.map(h=>associationMemberRow("Household",h,"household")),"No households linked.")}${associationSectionBlock("Coaches",coachRows,"No coaches linked.")}`;
 }
 function renderAlerts(){
   const visible=alerts.filter(alertVisible).sort((a,b)=>b.created.localeCompare(a.created)),approvals=pendingRequestsForAdmin();
@@ -577,7 +667,12 @@ async function recordLogin(user){
   user.loginCount=(user.loginCount||0)+1;
   await ClubhouseDB.put("users",user);
 }
-function roleHome(){if(isUnassociated()||isSuperUser())switchView("admin");else if(highestRole()==="Player")switchView("dashboard");else if(isCoach()&&!isDirector())switchView("schedule");else switchView(alerts.some(a=>!a.read&&alertVisible(a))?"alerts":"dashboard")}
+function roleHome(){
+  if(isUnassociated()||isSuperUser())switchView("admin");
+  else if(currentPlayer||highestRole()==="Player")switchView("dashboard");
+  else if(isCoach()&&!isDirector())switchView("schedule");
+  else switchView(alerts.some(a=>!a.read&&alertVisible(a))?"alerts":"dashboard");
+}
 async function boot(){
   await ClubhouseDB.open();
   showAuth();
@@ -587,7 +682,7 @@ async function boot(){
   currentUser=await ClubhouseDB.ensureAuthProfile(authUser);
   if(isSuperUser(currentUser))await ClubhouseDB.seedInitialSuperUser();
   await refreshRecords();
-  const saved=users.find(u=>u.id===authUser.id);
+  const saved=users.find(u=>u.id===currentUser?.id);
   if(!saved){showAuth();loginScreen();return}
   actualUser=saved;currentUser=users.find(u=>u.id===localStorage.getItem(EFFECTIVE_USER_KEY))||saved;localStorage.setItem(ACTIVE_USER_KEY,saved.id);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
 }
@@ -648,13 +743,13 @@ function profileRoleOptions(){
 }
 function openManage(kind){
   document.querySelector("#manage-title").textContent=`Add ${kind}`;
-  document.querySelector("#manage-fields").innerHTML=kind==="Profile"?`<input type="hidden" id="manage-kind" value="Profile"><label>Name<input id="manage-name" required></label><label>PIN<input id="manage-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Role<select id="manage-role">${profileRoleOptions()}</select></label>`:kind==="Player"?`<input type="hidden" id="manage-kind" value="Player"><label>Player name<input id="manage-name" required></label><label>Player login PIN<input id="manage-player-pin" type="password" inputmode="numeric" minlength="4" value="0000" required></label><label>Linked parent<select id="manage-parent"><option value="">None</option>${users.filter(u=>rolesFor(u).includes("Parent")).map(u=>`<option value="${u.id}">${u.name}</option>`).join("")}</select></label>`:`<input type="hidden" id="manage-kind" value="Team"><label>Team name<input id="manage-name" required></label><label>Season<input id="manage-season" value="${new Date().getFullYear()}"></label>`;
+  document.querySelector("#manage-fields").innerHTML=kind==="Profile"?`<input type="hidden" id="manage-kind" value="Profile"><label>Name<input id="manage-name" required></label><label>PIN<input id="manage-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Role<select id="manage-role">${profileRoleOptions()}</select></label>`:kind==="Player"?`<input type="hidden" id="manage-kind" value="Player"><label>Player name<input id="manage-name" required></label><label>Player email<input id="manage-email" type="email" autocomplete="email" required></label><label>Linked parent<select id="manage-parent"><option value="">None</option>${users.filter(u=>rolesFor(u).includes("Parent")).map(u=>`<option value="${u.id}">${u.name}</option>`).join("")}</select></label><p class="panel-copy">The player signs up with this email and Clubhouse links the login automatically.</p>`:`<input type="hidden" id="manage-kind" value="Team"><label>Team name<input id="manage-name" required></label><label>Season<input id="manage-season" value="${new Date().getFullYear()}"></label>`;
   document.querySelector("#manage-dialog").showModal();
 }
 function openRecordCreate(type){
   const meta=recordMeta(type);if(!meta)return;
   document.querySelector("#manage-title").textContent=`Add ${meta.label}`;
-  document.querySelector("#manage-fields").innerHTML=type==="superUser"?`<input type="hidden" id="manage-kind" value="Record"><input type="hidden" id="manage-record-type" value="superUser"><label>Existing or invited email<input id="manage-email" type="email" required></label><label>Display name for pending invite<input id="manage-name" placeholder="Optional"></label><p class="panel-copy">If the email already has an account, it is promoted immediately. If not, the email is pre-authorized and will become a Super User after sign-up.</p>`:`<input type="hidden" id="manage-kind" value="Record"><input type="hidden" id="manage-record-type" value="${type}"><label>${meta.label} name<input id="manage-name" required></label>`;
+  document.querySelector("#manage-fields").innerHTML=type==="superUser"?`<input type="hidden" id="manage-kind" value="Record"><input type="hidden" id="manage-record-type" value="superUser"><label>Existing or invited email<input id="manage-email" type="email" required></label><label>Display name for pending invite<input id="manage-name" placeholder="Optional"></label><p class="panel-copy">If the email already has an account, it is promoted immediately. If not, the email is pre-authorized and will become a Super User after sign-up.</p>`:type==="player"?`<input type="hidden" id="manage-kind" value="Record"><input type="hidden" id="manage-record-type" value="player"><label>Player name<input id="manage-name" required></label><label>Player email<input id="manage-email" type="email" autocomplete="email" required></label><p class="panel-copy">The player will sign up with this email. Clubhouse links that login to this player record automatically.</p>`:`<input type="hidden" id="manage-kind" value="Record"><input type="hidden" id="manage-record-type" value="${type}"><label>${meta.label} name<input id="manage-name" required></label>`;
   document.querySelector("#manage-dialog").showModal();
 }
 async function createAssociatedRecord(type,name,email=""){
@@ -676,8 +771,18 @@ async function createAssociatedRecord(type,name,email=""){
   }else if(type==="coach"){
     await ClubhouseDB.put("users",{id,name,username:"",active:true,status:"record_only",roles:["Coach"],recordType:"coach",created:now,createdBy,loginCount:0,lastLoginAt:null});
   }else if(type==="player"){
-    await ClubhouseDB.put("users",{id,name,username:"",active:true,status:"record_only",roles:["Player"],recordType:"player",created:now,createdBy,loginCount:0,lastLoginAt:null});
-    await ClubhouseDB.put("players",{id,name,userId:id,active:true,created:now,createdBy});
+    const normalized=email.toLowerCase();
+    if(!normalized){alert("Player email is required so the player can sign up and log in.");return}
+    let playerUser=users.find(u=>u.username?.toLowerCase()===normalized);
+    if(playerUser){
+      playerUser={...playerUser,name:playerUser.name||name,active:true,status:"active",roles:[...new Set([...rolesFor(playerUser),"Player"])],recordType:playerUser.recordType||"player"};
+      await ClubhouseDB.put("users",playerUser);
+    }else{
+      playerUser={id:ClubhouseDB.id("user"),name,username:normalized,active:true,status:"invited",roles:["Player"],recordType:"player",created:now,createdBy,loginCount:0,lastLoginAt:null};
+      await ClubhouseDB.put("users",playerUser);
+      await ClubhouseDB.put("invitations",{id:ClubhouseDB.id("invite"),email:normalized,recordType:"player",recordId:id,role:"admin",status:"pending",invitedBy:createdBy,created:now});
+    }
+    await ClubhouseDB.put("players",{id,name,userId:playerUser.id,active:true,created:now,createdBy});
     await ClubhouseDB.put("playerData",{id,data:structuredClone(defaultState)});
   }
   await grantRecordAccess(currentUser.id,type,id,"admin");
@@ -816,7 +921,10 @@ document.addEventListener("click",e=>{
   const deny=e.target.closest("[data-deny-request]");if(deny){const req=accessRequests.find(r=>r.id===deny.dataset.denyRequest);(req?.recordType?denyRecordRequest(req.id):denyRequest(req.id)).then(async()=>{await refreshRecords();renderAll();showToast("Request denied")})}
   if(e.target.closest("[data-close-link]"))document.querySelector("#link-dialog").close();
   if(e.target.closest("[data-close-invite]"))document.querySelector("#invite-dialog").close();
+  if(e.target.closest("[data-close-association]"))document.querySelector("#association-dialog").close();
   const refresh=e.target.closest("#refresh-profile");if(refresh)refreshProfileSections(refresh);
+  const assocTab=e.target.closest("[data-association-tab]");if(assocTab){document.querySelectorAll("[data-association-tab]").forEach(b=>b.classList.toggle("active",b===assocTab));document.querySelectorAll("[data-association-pane]").forEach(p=>p.classList.toggle("active",p.dataset.associationPane===assocTab.dataset.associationTab))}
+  const openAssoc=e.target.closest("[data-open-association]");if(openAssoc)openAssociationDetail(openAssoc.dataset.associationType,openAssoc.dataset.associationId);
   const addNew=e.target.closest("#add-new-button");if(addNew)openAddMenu(addNew);
   const linkButton=e.target.closest("#link-record-button");if(linkButton)openLinkMenu(linkButton);
   const createRecord=e.target.closest("[data-create-record]");if(createRecord){document.querySelector(".floating-menu")?.remove();openRecordCreate(createRecord.dataset.createRecord)}

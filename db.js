@@ -29,7 +29,10 @@ const ClubhouseDB = (() => {
   const REMOTE_KEYS={playerData:"player_id"};
   const fromRemote=(name,row)=>{
     if(!row)return row;
-    if(name==="users")return {id:row.id,authUserId:row.auth_user_id,username:row.username,name:row.display_name,active:row.status!=="inactive",status:row.status,roles:row.is_super_user?["Super User"]:[],loginCount:0,lastLoginAt:null};
+    if(name==="users"){
+      const roles=[row.is_super_user?"Super User":row.role].filter(Boolean);
+      return {id:row.id,authUserId:row.auth_user_id,username:row.username,name:row.display_name,active:row.active!==false&&row.status!=="inactive",status:row.status,roles,recordType:row.record_type||"",loginCount:row.login_count||0,lastLoginAt:row.last_login_at};
+    }
     if(name==="organizations")return {id:row.id,name:row.name,settings:row.settings||{},equipment:row.equipment||[],active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="teams")return {id:row.id,name:row.name,season:row.season,organizationId:row.organization_id,equipment:row.equipment||[],active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="households")return {id:row.id,name:row.name,ownerUserId:row.owner_user_id,equipment:row.equipment||[],active:row.active,createdBy:row.created_by,created:row.created_at};
@@ -52,7 +55,8 @@ const ClubhouseDB = (() => {
   const toRemote=(name,value)=>{
     const v={...value};
     if(name==="users"){
-      const row={id:v.id,auth_user_id:v.authUserId||(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(v.id)?v.id:null),username:v.username||"",display_name:v.name||v.username||"User",status:v.status||"active",updated_at:new Date().toISOString()};
+      const roles=v.roles||[],primaryRole=roles.find(r=>r!=="Super User")||"";
+      const row={id:v.id,auth_user_id:v.authUserId||(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(v.id)?v.id:null),username:v.username||"",display_name:v.name||v.username||"User",status:v.status||"active",role:primaryRole,record_type:v.recordType||"",active:v.active!==false,login_count:v.loginCount||0,last_login_at:v.lastLoginAt||null,updated_at:new Date().toISOString()};
       if(v.allowSuperUserWrite)row.is_super_user=(v.roles||[]).includes("Super User");
       return row;
     }
@@ -236,14 +240,24 @@ const ClubhouseDB = (() => {
     if(!authUser)return null;
     const existing=await get("users",authUser.id);
     if(existing){await acceptPendingInvitations();return await get("users",authUser.id)}
-    const hasUsers=(await all("users")).length>0;
-    const user={id:authUser.id,authUserId:authUser.id,username:authUser.email,name:name||authUser.email,active:true,status:hasUsers?"pending_association":"active",roles:hasUsers?[]:["Super User"],loginCount:0,lastLoginAt:null};
+    const existingUsers=await all("users");
+    const claimable=existingUsers.find(u=>u.username?.toLowerCase()===authUser.email?.toLowerCase()&&!u.authUserId);
+    if(claimable){
+      const claimedRoles=claimable.roles?.length?claimable.roles:[claimable.recordType==="player"?"Player":""];
+      const claimed={...claimable,authUserId:authUser.id,username:authUser.email,name:claimable.name||name||authUser.email,active:true,status:"active",roles:claimedRoles.filter(Boolean)};
+      await put("users",claimed);
+      await acceptPendingInvitations();
+      return await get("users",claimed.id);
+    }
+    const hasUsers=existingUsers.length>0;
+    const user={id:authUser.id,authUserId:authUser.id,username:authUser.email,name:name||authUser.email,active:true,status:hasUsers?"pending_association":"active",roles:hasUsers?[]:["Super User"],loginCount:0,lastLoginAt:null,allowSuperUserWrite:!hasUsers};
     await put("users",user);
+    delete user.allowSuperUserWrite;
     await acceptPendingInvitations();
     const pendingInvites=(await all("invitations")).filter(i=>i.email?.toLowerCase()===authUser.email?.toLowerCase()&&i.status==="pending");
     for(const invite of pendingInvites){
       if(invite.recordType==="superUser"){
-        user.roles=["Super User"];user.status="active";await put("users",user);
+        user.roles=["Super User"];user.status="active";user.allowSuperUserWrite=true;await put("users",user);delete user.allowSuperUserWrite;
       }else await grantInviteAccess(user,invite);
       invite.status="accepted";invite.acceptedBy=user.id;invite.acceptedAt=new Date().toISOString();await put("invitations",invite);
     }

@@ -12,12 +12,20 @@ python -m http.server 4173
 
 Open `http://localhost:4173`. The app uses Supabase Auth and Supabase-backed records when configured, with IndexedDB as a local fallback.
 
+## MVP direction
+
+Clubhouse is now treated as a player-first baseball development platform. The main daily loop is: select a player, complete readiness, see today's training, log the session, and review progress. Coaches and parent-coaches assign or refine training around assigned players, while parents primarily view progress and workload safety.
+
+The app keeps the full organization, team, household, invitation, access request, and Super User structure, but those workflows support player development rather than replacing it as the center of the product. The access model is documented in `ACCESS_MODEL.md`; permissions are scoped to silos instead of treated as one flat association list.
+
 ## Supabase setup
 
 1. In Supabase SQL Editor, run `supabase-schema.sql`.
 2. In Authentication settings, enable Email/Password signups.
 3. Serve the app from localhost or HTTPS and sign up with your first test account.
-4. The first authenticated profile created in an empty Supabase records table becomes the initial Super User.
+4. The first authenticated profile created in an empty Supabase profile table becomes the initial Super User.
+
+`supabase-schema.sql` creates the normalized MVP backend expected by `db.js`, including profiles, organizations, teams, households, players, access associations, invitations, player training state, calendar events, alerts, decisions, player tags, RLS policies, and the RPC helpers used by the frontend. The older `clubhouse_records` table remains as a compatibility fallback for non-normalized stores such as setup metadata.
 
 ## Current features
 
@@ -37,6 +45,7 @@ Open `http://localhost:4173`. The app uses Supabase Auth and Supabase-backed rec
 - Login tracking with last-login timestamps and local login counts
 - First Supabase-authenticated profile becomes the initial test Super User when the records table is empty
 - Public sign-up creates a login immediately without choosing a role; new users land on Profile, where they can create records or request organization, team, household, coach, or player associations
+- Players are created with an email address; when that player signs up with the same email, the login is linked to the existing player profile and training record
 - Profile page with personal information, pending association requests, Add New and Link record workflows, associated-record tables, and app settings
 - Super User Admin view with global Super User, unassociated user, organization, team, household, director, coach, parent, and player record tables plus masquerade testing
 - Super Users can promote existing users or pre-authorize an email to become a Super User after sign-up
