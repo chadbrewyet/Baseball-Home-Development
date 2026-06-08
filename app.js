@@ -422,6 +422,7 @@ async function refreshRecords(){
   teamRoles=teamCoachRoles.map(r=>({id:r.id,userId:r.userId,teamId:r.teamId,coach:true,scheduler:true,coachType:r.coachType,specializations:r.specializations,active:r.active}));
 }
 async function migrateAssociations(oldMemberships=[],oldTeamRoles=[]){
+  if(await ClubhouseDB.normalizeCurrentUserAssociations())return;
   const now=()=>new Date().toISOString();
   const addAssoc=async (userId,type,recordId,role="member",createdBy=userId)=>{
     if(!userId||!type||!recordId)return;

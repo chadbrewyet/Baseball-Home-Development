@@ -157,6 +157,14 @@ const ClubhouseDB = (() => {
     }
     return false;
   }
+  async function normalizeCurrentUserAssociations(){
+    if(hasRemote()&&await authed()){
+      const {error}=await sb.rpc("normalize_current_user_associations");
+      if(error)throw error;
+      return true;
+    }
+    return false;
+  }
   async function remove(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
@@ -234,5 +242,5 @@ const ClubhouseDB = (() => {
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations};
 })();
