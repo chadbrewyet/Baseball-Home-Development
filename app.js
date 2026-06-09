@@ -5,6 +5,7 @@ const ACTIVE_USER_KEY = "clubhouse-active-user";
 const ACTIVE_PLAYER_KEY = "clubhouse-active-player";
 const EFFECTIVE_USER_KEY = "clubhouse-effective-user";
 const REMEMBER_LOGIN_KEY = "clubhouse-remember-login";
+const MASQUERADE_SESSION_KEY = "clubhouse-masquerade-session";
 const ROLE_ORDER = ["Player", "Parent", "Coach", "Director", "Super User"];
 const ROLE_SCOPE = {"Super User":"All access",Director:"Organization",Coach:"Team",Parent:"Household",Player:"Player"};
 const SPECIALIZATIONS = ["All","pitching","hitting","infielding","outfielding","catching"];
@@ -471,7 +472,7 @@ function associatedUserIdsForDirectory(userId=currentUser?.id){
   if(isSuperUser())return users.map(u=>u.id);
   const ids=new Set();
   const add=id=>{if(id&&id!==userId)ids.add(id)};
-  const teamIds=visibleTeamIds(userId),orgIds=organizationIdsForUser(userId),hhIds=householdIdsForUser(userId),playerIds=visiblePlayerIds(userId);
+  const orgIds=organizationIdsForUser(userId),orgScopeTeamIds=orgTeamIds(orgIds),teamIds=[...new Set([...visibleTeamIds(userId),...orgScopeTeamIds])],hhIds=householdIdsForUser(userId),playerIds=visiblePlayerIds(userId);
   visibleCoachUserIds(userId).forEach(add);visibleParentUserIds(userId).forEach(add);
   playerIds.forEach(pid=>add(players.find(p=>p.id===pid)?.userId));
   teamCoachRoles.filter(r=>teamIds.includes(r.teamId)&&r.active!==false).forEach(r=>add(r.userId));
@@ -480,6 +481,8 @@ function associatedUserIdsForDirectory(userId=currentUser?.id){
   householdMemberships.filter(m=>hhIds.includes(m.householdId)&&m.active!==false).forEach(m=>{add(m.userId);add(players.find(p=>p.id===m.playerId)?.userId)});
   organizationRoles.filter(r=>orgIds.includes(r.organizationId)&&r.active!==false).forEach(r=>add(r.userId));
   recordAssociations.filter(a=>a.active!==false&&(teamIds.includes(a.recordId)||orgIds.includes(a.recordId)||hhIds.includes(a.recordId)||playerIds.includes(a.recordId))).forEach(a=>add(a.userId));
+  recordAssociations.filter(a=>a.active!==false&&a.recordType==="organization"&&orgIds.includes(a.recordId)).forEach(a=>add(a.userId));
+  recordAssociations.filter(a=>a.active!==false&&a.recordType==="team"&&teamIds.includes(a.recordId)).forEach(a=>add(a.userId));
   return [...ids];
 }
 function individualDirectoryUsers(){
@@ -567,9 +570,17 @@ function associationModalActions(type,record){
   const roles=scopedInviteRoles(type),canInvite=isRecordAdmin(type,record.id)||canEditRecord(type,record);
   return `<div class="association-modal-actions">${canInvite?roles.map(role=>`<button class="secondary-button" type="button" data-scoped-invite data-invite-role="${role}" data-record-type="${type}" data-record-id="${esc(record.id)}">Invite ${role}</button>`).join(""):""}<button class="text-button danger" type="button" data-leave-association data-record-type="${type}" data-record-id="${esc(record.id)}">Leave</button></div>`;
 }
+function canManageScopeMembers(scopeType,scopeId){
+  if(isSuperUser())return true;
+  if(scopeType==="household")return householdMemberships.some(m=>m.householdId===scopeId&&m.userId===currentUser?.id&&m.role==="parent"&&m.active!==false);
+  if(scopeType==="team")return organizationRoles.some(r=>r.userId===currentUser?.id&&r.active!==false&&teams.find(t=>t.id===scopeId)?.organizationId===r.organizationId)||teamCoachRoles.some(r=>r.teamId===scopeId&&r.userId===currentUser?.id&&r.active!==false&&r.coachType==="head");
+  if(scopeType==="organization")return organizationRoles.some(r=>r.organizationId===scopeId&&r.userId===currentUser?.id&&r.active!==false);
+  if(scopeType==="player")return canEditRecord("player",players.find(p=>p.id===scopeId));
+  return false;
+}
 function associationMemberRow(scopeType,scopeId,entityType,record,detail="",removable=true){
   const encoded=`data-scope-type="${scopeType}" data-scope-id="${esc(scopeId)}" data-entity-type="${entityType}" data-entity-id="${esc(record.id)}"`;
-  const editable=canEditRecord(entityType,record),scope=entityRecord(scopeType,scopeId),canRemove=removable&&(canEditRecord(scopeType,scope)||isRecordAdmin(scopeType,scopeId));
+  const editable=canEditRecord(entityType,record),canRemove=removable&&canManageScopeMembers(scopeType,scopeId);
   return `<div class="association-member"><div><strong>${esc(recordName(record))}</strong>${detail?`<small>${esc(detail)}</small>`:""}</div><div class="row-actions"><button class="icon-action" type="button" data-view-entity ${encoded}>View</button>${editable?`<button class="icon-action" type="button" data-edit-entity ${encoded}>Edit</button>`:""}${canRemove?`<button class="icon-action danger" type="button" data-remove-entity-association ${encoded}>Remove</button>`:""}</div></div>`;
 }
 function openAssociationDetail(type,id){
@@ -659,7 +670,7 @@ async function removeRecordAssociationsFor(userId,type,recordId){
 }
 async function removeEntityAssociation(scopeType,scopeId,entityType,entityId){
   const scope=entityRecord(scopeType,scopeId);
-  if(!scope||!(canEditRecord(scopeType,scope)||isRecordAdmin(scopeType,scopeId))){alert("You do not have permission to remove members from this association.");return}
+  if(!scope||!canManageScopeMembers(scopeType,scopeId)){alert("You do not have permission to remove members from this association.");return}
   if(!confirm(`Remove this ${recordMeta(entityType)?.label||entityType} from ${recordName(scope)}? This only removes the association.`))return;
   if(scopeType==="household"&&["parent","director","coach"].includes(entityType)){
     for(const m of householdMemberships.filter(m=>m.householdId===scopeId&&m.userId===entityId))await ClubhouseDB.remove("householdMemberships",m.id);
@@ -871,7 +882,7 @@ async function selectPlayer(id){
 }
 function showAuth(){document.querySelector("#auth-screen").classList.add("show")}
 function hideAuth(){document.querySelector("#auth-screen").classList.remove("show")}
-async function signOutUser(){await ClubhouseDB.signOut();localStorage.removeItem(ACTIVE_USER_KEY);localStorage.removeItem(EFFECTIVE_USER_KEY);localStorage.removeItem(REMEMBER_LOGIN_KEY);actualUser=null;currentUser=null;showAuth();loginScreen()}
+async function signOutUser(){await ClubhouseDB.signOut();localStorage.removeItem(ACTIVE_USER_KEY);localStorage.removeItem(EFFECTIVE_USER_KEY);localStorage.removeItem(REMEMBER_LOGIN_KEY);localStorage.removeItem(MASQUERADE_SESSION_KEY);actualUser=null;currentUser=null;showAuth();loginScreen()}
 function setupScreen(){
   document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">First-time setup</p><h1>Create your local clubhouse</h1><p>This device will store profiles, schedules, and training records. Existing training data will be copied into the first player.</p><form id="setup-form" class="form-stack"><label>Super User name<input id="setup-owner" required></label><label>Super User PIN<input id="setup-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Initial player name<input id="setup-player" required></label><button class="primary-button">Create clubhouse</button></form>`;
   document.querySelector("#setup-form").onsubmit=async e=>{e.preventDefault();await ClubhouseDB.createSetup(document.querySelector("#setup-owner").value.trim(),document.querySelector("#setup-pin").value,document.querySelector("#setup-player").value.trim(),state);await refreshRecords();currentUser=users.find(u=>isSuperUser(u));await recordLogin(currentUser);localStorage.setItem(ACTIVE_USER_KEY,currentUser.id);await selectPlayer(players[0].id);hideAuth()};
@@ -897,7 +908,7 @@ async function boot(){
   await ClubhouseDB.open();
   showAuth();
   const authUser=await ClubhouseDB.currentAuthUser();
-  if(authUser&&localStorage.getItem(REMEMBER_LOGIN_KEY)!=="true"){await ClubhouseDB.signOut();loginScreen();return}
+  if(authUser&&localStorage.getItem(REMEMBER_LOGIN_KEY)!=="true"&&localStorage.getItem(MASQUERADE_SESSION_KEY)!=="true"){await ClubhouseDB.signOut();loginScreen();return}
   if(!authUser){showAuth();loginScreen();return}
   currentUser=await ClubhouseDB.ensureAuthProfile(authUser);
   if(isSuperUser(currentUser))await ClubhouseDB.seedInitialSuperUser();
@@ -952,6 +963,7 @@ async function startMasquerade(userId){
   if(!isSuperUser(actualUser))return;
   const target=users.find(u=>u.id===userId&&!isSuperUser(u));if(!target)return;
   localStorage.setItem(EFFECTIVE_USER_KEY,target.id);
+  localStorage.setItem(MASQUERADE_SESSION_KEY,"true");
   document.querySelector("#masquerade-shell-title").textContent=`Masquerading as ${target.name}`;
   document.querySelector("#masquerade-frame").src=`${location.pathname}${location.search || ""}`;
   document.querySelector("#masquerade-shell-dialog").showModal();
@@ -959,6 +971,7 @@ async function startMasquerade(userId){
 async function exitMasquerade(){
   if(!actualUser)return;
   localStorage.removeItem(EFFECTIVE_USER_KEY);
+  localStorage.removeItem(MASQUERADE_SESSION_KEY);
   document.querySelector("#masquerade-frame").src="about:blank";
   document.querySelector("#masquerade-shell-dialog").close();
   currentUser=actualUser;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));renderAll();
