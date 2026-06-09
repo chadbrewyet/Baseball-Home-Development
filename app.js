@@ -260,6 +260,16 @@ function visibleTeamIds(userId=currentUser?.id){if(isSuperUser(users.find(u=>u.i
 function visiblePlayerIds(userId=currentUser?.id){if(isSuperUser(users.find(u=>u.id===userId)||currentUser))return players.map(p=>p.id);if(organizationRoles.some(r=>r.userId===userId&&r.active!==false))return teamPlayerIds(orgTeamIds(organizationIdsForUser(userId)));const coachedOwn=teamPlayerIds(coachTeamIds(userId)),coachOrg=teamPlayerIds(orgTeamIds(orgIdsForTeams(coachTeamIds(userId)))),household=householdPlayerIds(userId),self=players.filter(p=>p.userId===userId).map(p=>p.id),playerTeam=teamPlayerIds(teamIdsForPlayers(self));return [...new Set([...self,...household,...coachedOwn,...coachOrg,...playerTeam,...userRecordAssociations(userId,"player").map(a=>a.recordId)])]}
 function visibleParentUserIds(userId=currentUser?.id){const user=users.find(u=>u.id===userId)||currentUser;if(isSuperUser(user))return users.filter(u=>rolesFor(u).includes("Parent")||u.recordType==="parent").map(u=>u.id);const hParents=householdParentUserIds(userId),self=rolesFor(user).includes("Parent")?[userId]:[];let playerIds=[];if(organizationRoles.some(r=>r.userId===userId&&r.active!==false))playerIds=visiblePlayerIds(userId);else if(teamCoachRoles.some(r=>r.userId===userId&&r.active!==false))playerIds=teamPlayerIds(coachTeamIds(userId));else playerIds=visiblePlayerIds(userId);return [...new Set([...self,...hParents,...playerParentUserIds(playerIds)])]}
 function visibleCoachUserIds(userId=currentUser?.id){if(isSuperUser(users.find(u=>u.id===userId)||currentUser))return users.filter(u=>rolesFor(u).includes("Coach")||u.recordType==="coach").map(u=>u.id);const teamIds=visibleTeamIds(userId);return idsFrom(teamCoachRoles.filter(r=>teamIds.includes(r.teamId)&&r.active!==false),"userId")}
+function canEditIndividualUser(record,userId=currentUser?.id){
+  const user=users.find(u=>u.id===userId)||currentUser;
+  if(record.id===userId||isSuperUser(user))return true;
+  const linkedPlayers=players.filter(p=>p.userId===record.id&&p.active!==false);
+  if(isParent(user)&&linkedPlayers.some(p=>householdPlayerIds(userId).includes(p.id)))return true;
+  const orgIds=organizationIdsForUser(userId);
+  const orgCoachLink=recordAssociations.some(a=>a.userId===record.id&&a.recordType==="organization"&&orgIds.includes(a.recordId)&&a.active!==false&&String(a.role||"").toLowerCase().includes("coach"));
+  if(isDirector(user)&&(canEditRecord("coach",record,userId)||orgCoachLink))return true;
+  return false;
+}
 function canEditRecord(type,record,userId=currentUser?.id){
   if(!record||isSuperUser(users.find(u=>u.id===userId)||currentUser))return Boolean(record);
   if(["director","coach","parent","unassociated"].includes(type)&&record.id===userId)return true;
@@ -269,7 +279,7 @@ function canEditRecord(type,record,userId=currentUser?.id){
   if(type==="player"){const player=record;return player.userId===userId||organizationRoles.some(r=>r.userId===userId&&orgTeamIds([r.organizationId]).some(tid=>playerTeamMemberships.some(m=>m.teamId===tid&&m.playerId===player.id&&m.active!==false))&&r.active!==false)||teamCoachRoles.some(r=>r.userId===userId&&r.active!==false&&playerTeamMemberships.some(m=>m.teamId===r.teamId&&m.playerId===player.id&&m.active!==false))||householdPlayerIds(userId).includes(player.id)&&isParent(users.find(u=>u.id===userId)||currentUser)}
   if(type==="coach")return organizationIdsForUser(userId).some(orgId=>teamCoachRoles.some(r=>r.userId===record.id&&r.active!==false&&teams.find(t=>t.id===r.teamId)?.organizationId===orgId))&&isDirector(users.find(u=>u.id===userId)||currentUser);
   if(type==="parent")return record.id===userId||(isParent(users.find(u=>u.id===userId)||currentUser)&&householdParentUserIds(userId).includes(record.id));
-  if(type==="individual")return record.id===userId||isSuperUser(users.find(u=>u.id===userId)||currentUser);
+  if(type==="individual")return canEditIndividualUser(record,userId);
   return isRecordAdmin(type,record.id,userId);
 }
 function visibleRecords(type,userId=currentUser?.id){if(isSuperUser(users.find(u=>u.id===userId)||currentUser))return recordsForType(type);const ids=userRecordAssociations(userId,type).map(a=>a.recordId);if(type==="organization")return organizations.filter(o=>organizationIdsForUser(userId).includes(o.id));if(type==="team")return teams.filter(t=>visibleTeamIds(userId).includes(t.id));if(type==="household")return households.filter(h=>householdIdsForUser(userId).includes(h.id));if(type==="player")return players.filter(p=>visiblePlayerIds(userId).includes(p.id));if(type==="parent")return users.filter(u=>visibleParentUserIds(userId).includes(u.id));if(type==="coach")return users.filter(u=>visibleCoachUserIds(userId).includes(u.id));if(type==="director")return users.filter(u=>ids.includes(u.id)||rolesFor(u).includes("Director"));return recordsForType(type).filter(r=>ids.includes(r.id)||r.id===userId)}
@@ -1222,9 +1232,12 @@ document.addEventListener("change",e=>{
 });
 document.addEventListener("input",e=>{
   if(e.target.id==="individual-search"){
+    const caret=e.target.selectionStart??e.target.value.length;
     individualFilters={...individualFilters,query:e.target.value};
     renderAdmin();
-    document.querySelector("#individual-search")?.focus();
+    const search=document.querySelector("#individual-search");
+    search?.focus();
+    search?.setSelectionRange(caret,caret);
   }
 });
 document.addEventListener("submit",async e=>{
