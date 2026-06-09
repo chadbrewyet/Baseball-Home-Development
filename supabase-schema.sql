@@ -517,11 +517,21 @@ as $$
 declare
   v_role text := coalesce(nullif(trim(p_role), ''), 'member');
   v_player_id text;
+  v_profile_name text;
   v_team public.teams%rowtype;
   v_existing_household_id text;
   v_team_id text;
 begin
   perform public.upsert_record_association(p_user_id, p_record_type, p_record_id, case when v_role = 'Director' then 'admin' else v_role end, p_created_by);
+  if v_role = 'Player' then
+    select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
+    if v_player_id is null then
+      select coalesce(display_name, username, 'Player') into v_profile_name from public.profiles where id = p_user_id;
+      v_player_id := 'player-' || gen_random_uuid()::text;
+      insert into public.players (id, name, user_id, active, created_by)
+      values (v_player_id, v_profile_name, p_user_id, true, p_created_by);
+    end if;
+  end if;
 
   if p_record_type = 'team' then
     select * into v_team from public.teams where id = p_record_id;
@@ -531,7 +541,6 @@ begin
       on conflict (user_id, team_id) do update set active = true, updated_at = now();
     end if;
     if v_role in ('Player','member') then
-      select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
       if v_player_id is not null then
         insert into public.player_team_memberships (id, player_id, team_id, active, priority, created_by)
         values ('membership-' || gen_random_uuid()::text, v_player_id, p_record_id, true, 2, p_created_by)
@@ -542,8 +551,7 @@ begin
       perform public.upsert_record_association(p_user_id, 'organization', v_team.organization_id, case when v_role = 'admin' then 'admin' else 'member' end, p_created_by);
     end if;
   elsif p_record_type = 'household' then
-    select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
-    if v_role = 'Player' and v_player_id is not null then
+    if v_player_id is not null and v_role <> 'Parent' then
       select id into v_existing_household_id from public.household_memberships where household_id = p_record_id and player_id = v_player_id limit 1;
       if v_existing_household_id is null then
         insert into public.household_memberships (id, household_id, player_id, role, active, created_by)
@@ -565,7 +573,6 @@ begin
     values ('org-role-' || gen_random_uuid()::text, p_user_id, p_record_id, 'director', true, p_created_by)
     on conflict (user_id, organization_id) do update set role = 'director', active = true, updated_at = now();
   elsif p_record_type = 'organization' and v_role = 'Player' then
-    select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
     if v_player_id is not null then
       for v_team_id in select id from public.teams where organization_id = p_record_id and active loop
         insert into public.player_team_memberships (id, player_id, team_id, active, priority, created_by)

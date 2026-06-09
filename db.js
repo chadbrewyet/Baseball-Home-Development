@@ -216,6 +216,11 @@ const ClubhouseDB = (() => {
   async function grantInviteAccess(user,invite){
     const role=invite.role||"member";
     await ensureRecordAssociation(user.id,invite.recordType,invite.recordId,role==="Director"?"admin":role,invite.invitedBy);
+    let rolePlayer=(await all("players")).find(p=>p.userId===user.id&&p.active!==false);
+    if(role==="Player"&&!rolePlayer){
+      rolePlayer={id:id("player"),name:user.name||user.username||"Player",userId:user.id,active:true,createdBy:invite.invitedBy};
+      await put("players",rolePlayer);
+    }
     if(invite.recordType==="team"){
       const teamRoles=await all("teamCoachRoles");
       if(["Coach","admin"].includes(role)){
@@ -224,20 +229,23 @@ const ClubhouseDB = (() => {
         await put("teamCoachRoles",{id:coachRole?.id||id("coachRole"),userId:user.id,teamId:invite.recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
       }
       if(["Player","member"].includes(role)){
-        const player=(await all("players")).find(p=>p.userId===user.id);
+        const player=role==="Player"?rolePlayer:(await all("players")).find(p=>p.userId===user.id);
         if(player&&!(await all("playerTeamMemberships")).some(m=>m.playerId===player.id&&m.teamId===invite.recordId&&m.active!==false))await put("playerTeamMemberships",{id:id("membership"),playerId:player.id,teamId:invite.recordId,active:true,priority:(await all("playerTeamMemberships")).some(m=>m.playerId===player.id)?2:1});
       }
       const team=(await get("teams",invite.recordId));
       if(team?.organizationId)await ensureRecordAssociation(user.id,"organization",team.organizationId,role==="admin"?"admin":"member",invite.invitedBy);
     }else if(invite.recordType==="household"){
-      const player=(await all("players")).find(p=>p.userId===user.id);
+      const player=role==="Player"?rolePlayer:(await all("players")).find(p=>p.userId===user.id);
       const existingMember=(await all("householdMemberships")).find(m=>m.householdId===invite.recordId&&((player&&m.playerId===player.id)||m.userId===user.id));
-      await put("householdMemberships",role==="Player"&&player?{id:existingMember?.id||id("hh"),householdId:invite.recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
+      if(role==="Player"&&player){
+        await put("householdMemberships",{id:existingMember?.id||id("hh"),householdId:invite.recordId,playerId:player.id,role:"player",active:true});
+        for(const m of (await all("householdMemberships")).filter(m=>m.householdId===invite.recordId&&m.userId===user.id&&m.role==="parent"))await put("householdMemberships",{...m,active:false});
+      }else await put("householdMemberships",{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
     }else if(invite.recordType==="organization"&&["admin","Director"].includes(role)){
       const existingRole=(await all("organizationRoles")).find(r=>r.userId===user.id&&r.organizationId===invite.recordId);
       await put("organizationRoles",{id:existingRole?.id||id("orgRole"),userId:user.id,organizationId:invite.recordId,role:"director",active:true});
     }else if(invite.recordType==="organization"&&role==="Player"){
-      const player=(await all("players")).find(p=>p.userId===user.id),orgTeams=(await all("teams")).filter(t=>t.organizationId===invite.recordId&&t.active!==false),memberships=await all("playerTeamMemberships");
+      const player=rolePlayer,orgTeams=(await all("teams")).filter(t=>t.organizationId===invite.recordId&&t.active!==false),memberships=await all("playerTeamMemberships");
       if(player)for(const team of orgTeams)if(!memberships.some(m=>m.playerId===player.id&&m.teamId===team.id&&m.active!==false))await put("playerTeamMemberships",{id:id("membership"),playerId:player.id,teamId:team.id,active:true,priority:2});
     }else if(invite.recordType==="player"){
       const player=await get("players",invite.recordId);
