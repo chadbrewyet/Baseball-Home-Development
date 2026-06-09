@@ -177,6 +177,37 @@ const ClubhouseDB = (() => {
     }
     return [];
   }
+  async function appContext(){
+    if(!(hasRemote()&&await authed()))return null;
+    const {data,error}=await sb.rpc("current_user_app_context");
+    if(error){
+      console.warn("Falling back to table refresh; scoped app context unavailable.",error);
+      return null;
+    }
+    const ctx=data||{};
+    const map=(name,rows=[])=>rows.map(row=>fromRemote(name,row));
+    return {
+      users:map("users",ctx.users),
+      players:map("players",ctx.players),
+      teams:map("teams",ctx.teams),
+      organizations:map("organizations",ctx.organizations),
+      households:map("households",ctx.households),
+      userPlayerAccess:map("userPlayerAccess",ctx.userPlayerAccess),
+      organizationRoles:map("organizationRoles",ctx.organizationRoles),
+      teamCoachRoles:map("teamCoachRoles",ctx.teamCoachRoles),
+      householdMemberships:map("householdMemberships",ctx.householdMemberships),
+      playerTeamMemberships:map("playerTeamMemberships",ctx.playerTeamMemberships),
+      recordAssociations:map("recordAssociations",ctx.recordAssociations),
+      accessRequests:map("accessRequests",ctx.accessRequests),
+      invitations:map("invitations",ctx.invitations),
+      playerData:map("playerData",ctx.playerData),
+      events:map("events",ctx.events),
+      alerts:map("alerts",ctx.alerts),
+      decisions:map("decisions",ctx.decisions),
+      playerTags:map("playerTags",ctx.playerTags),
+      accessRequestDetails:ctx.accessRequestDetails||[]
+    };
+  }
   async function remove(name,itemId){
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
@@ -280,5 +311,5 @@ const ClubhouseDB = (() => {
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations,accessRequestAdminDetails};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations,accessRequestAdminDetails,appContext};
 })();

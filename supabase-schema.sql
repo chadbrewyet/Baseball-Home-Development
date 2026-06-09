@@ -395,7 +395,16 @@ create index if not exists profiles_username_idx on public.profiles (lower(usern
 create index if not exists teams_organization_id_idx on public.teams (organization_id);
 create index if not exists players_user_id_idx on public.players (user_id);
 create index if not exists record_associations_user_idx on public.record_associations (user_id);
+create index if not exists record_associations_record_idx on public.record_associations (record_type, record_id, active);
+create index if not exists organization_roles_org_active_idx on public.organization_roles (organization_id, active);
+create index if not exists team_coach_roles_team_active_idx on public.team_coach_roles (team_id, active);
+create index if not exists household_memberships_household_active_idx on public.household_memberships (household_id, active);
+create index if not exists household_memberships_user_active_idx on public.household_memberships (user_id, active);
+create index if not exists household_memberships_player_active_idx on public.household_memberships (player_id, active);
+create index if not exists player_team_memberships_team_active_idx on public.player_team_memberships (team_id, active);
+create index if not exists player_team_memberships_player_active_idx on public.player_team_memberships (player_id, active);
 create index if not exists access_requests_record_idx on public.access_requests (record_type, record_id, status);
+create index if not exists access_requests_user_status_idx on public.access_requests (user_id, status);
 create index if not exists invitations_email_idx on public.invitations (lower(email), status);
 create index if not exists player_training_state_player_idx on public.player_training_state (player_id);
 create unique index if not exists profiles_auth_user_id_unique on public.profiles (auth_user_id) where auth_user_id is not null;
@@ -907,5 +916,110 @@ begin
   left join public.profiles record_profile on ar.record_type in ('coach','parent','director','superUser') and record_profile.id = ar.record_id
   where ar.status = 'pending'
   order by ar.created_at;
+end;
+$$;
+
+create or replace function public.current_user_app_context()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id text := public.current_profile_id();
+  v_is_super boolean := false;
+  v_org_ids text[] := '{}'::text[];
+  v_team_ids text[] := '{}'::text[];
+  v_household_ids text[] := '{}'::text[];
+  v_player_ids text[] := '{}'::text[];
+  v_profile_ids text[] := '{}'::text[];
+  v_request_ids text[] := '{}'::text[];
+begin
+  if v_user_id is null then
+    return '{}'::jsonb;
+  end if;
+
+  select coalesce(is_super_user, false) into v_is_super
+  from public.profiles
+  where id = v_user_id;
+
+  if v_is_super then
+    return jsonb_build_object(
+      'users', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.profiles) x), '[]'::jsonb),
+      'players', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.players) x), '[]'::jsonb),
+      'teams', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.teams) x), '[]'::jsonb),
+      'organizations', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.organizations) x), '[]'::jsonb),
+      'households', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.households) x), '[]'::jsonb),
+      'userPlayerAccess', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.user_player_access) x), '[]'::jsonb),
+      'organizationRoles', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.organization_roles) x), '[]'::jsonb),
+      'teamCoachRoles', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.team_coach_roles) x), '[]'::jsonb),
+      'householdMemberships', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.household_memberships) x), '[]'::jsonb),
+      'playerTeamMemberships', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.player_team_memberships) x), '[]'::jsonb),
+      'recordAssociations', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.record_associations) x), '[]'::jsonb),
+      'accessRequests', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.access_requests) x), '[]'::jsonb),
+      'invitations', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.invitations) x), '[]'::jsonb),
+      'playerData', coalesce((select jsonb_agg(to_jsonb(x) order by x.player_id) from (select * from public.player_training_state) x), '[]'::jsonb),
+      'events', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.calendar_events) x), '[]'::jsonb),
+      'alerts', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.alerts) x), '[]'::jsonb),
+      'decisions', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.admin_decisions) x), '[]'::jsonb),
+      'playerTags', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.player_tags) x), '[]'::jsonb),
+      'accessRequestDetails', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.access_request_admin_details() x), '[]'::jsonb)
+    );
+  end if;
+
+  v_household_ids := coalesce(array(select distinct household_id from public.household_memberships where active and user_id = v_user_id), '{}'::text[]);
+  v_player_ids := coalesce(array(select distinct id from public.players where active and user_id = v_user_id), '{}'::text[]);
+  v_household_ids := array(select distinct unnest(v_household_ids || coalesce(array(select household_id from public.household_memberships where active and player_id = any(v_player_ids)), '{}'::text[]) || coalesce(array(select record_id from public.record_associations where active and user_id = v_user_id and record_type = 'household'), '{}'::text[])));
+  v_player_ids := array(select distinct unnest(v_player_ids || coalesce(array(select player_id from public.household_memberships where active and household_id = any(v_household_ids) and player_id is not null), '{}'::text[]) || coalesce(array(select record_id from public.record_associations where active and user_id = v_user_id and record_type = 'player'), '{}'::text[])));
+  v_team_ids := coalesce(array(select distinct team_id from public.team_coach_roles where active and user_id = v_user_id), '{}'::text[]);
+  v_team_ids := array(select distinct unnest(v_team_ids || coalesce(array(select team_id from public.player_team_memberships where active and player_id = any(v_player_ids)), '{}'::text[]) || coalesce(array(select record_id from public.record_associations where active and user_id = v_user_id and record_type = 'team'), '{}'::text[])));
+  v_org_ids := coalesce(array(select distinct organization_id from public.organization_roles where active and user_id = v_user_id), '{}'::text[]);
+  v_org_ids := array(select distinct unnest(v_org_ids || coalesce(array(select organization_id from public.teams where active and id = any(v_team_ids) and organization_id is not null), '{}'::text[]) || coalesce(array(select record_id from public.record_associations where active and user_id = v_user_id and record_type = 'organization'), '{}'::text[])));
+  v_team_ids := array(select distinct unnest(v_team_ids || coalesce(array(select id from public.teams where active and organization_id = any(v_org_ids)), '{}'::text[])));
+  v_player_ids := array(select distinct unnest(v_player_ids || coalesce(array(select player_id from public.player_team_memberships where active and team_id = any(v_team_ids)), '{}'::text[])));
+  v_household_ids := array(select distinct unnest(v_household_ids || coalesce(array(select household_id from public.household_memberships where active and player_id = any(v_player_ids)), '{}'::text[])));
+  v_profile_ids := array(select distinct unnest(array[v_user_id]::text[] ||
+    coalesce(array(select user_id from public.organization_roles where active and organization_id = any(v_org_ids)), '{}'::text[]) ||
+    coalesce(array(select user_id from public.team_coach_roles where active and team_id = any(v_team_ids)), '{}'::text[]) ||
+    coalesce(array(select user_id from public.household_memberships where active and household_id = any(v_household_ids) and user_id is not null), '{}'::text[]) ||
+    coalesce(array(select user_id from public.players where active and id = any(v_player_ids) and user_id is not null), '{}'::text[]) ||
+    coalesce(array(select user_id from public.record_associations where active and ((record_type = 'organization' and record_id = any(v_org_ids)) or (record_type = 'team' and record_id = any(v_team_ids)) or (record_type = 'household' and record_id = any(v_household_ids)) or (record_type = 'player' and record_id = any(v_player_ids)))), '{}'::text[])
+  ));
+
+  v_request_ids := coalesce(array(
+    select distinct id
+    from public.access_requests
+    where status = 'pending'
+      and (
+        user_id = v_user_id
+        or requested_user_id = v_user_id
+        or (record_type = 'organization' and record_id = any(v_org_ids))
+        or (record_type = 'team' and record_id = any(v_team_ids))
+        or (record_type = 'household' and record_id = any(v_household_ids))
+        or (record_type = 'player' and record_id = any(v_player_ids))
+      )
+  ), '{}'::text[]);
+
+  return jsonb_build_object(
+    'users', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.profiles where id = any(v_profile_ids)) x), '[]'::jsonb),
+    'players', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.players where id = any(v_player_ids)) x), '[]'::jsonb),
+    'teams', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.teams where id = any(v_team_ids)) x), '[]'::jsonb),
+    'organizations', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.organizations where id = any(v_org_ids)) x), '[]'::jsonb),
+    'households', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.households where id = any(v_household_ids)) x), '[]'::jsonb),
+    'userPlayerAccess', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.user_player_access where user_id = any(v_profile_ids) or player_id = any(v_player_ids)) x), '[]'::jsonb),
+    'organizationRoles', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.organization_roles where organization_id = any(v_org_ids) or user_id = v_user_id) x), '[]'::jsonb),
+    'teamCoachRoles', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.team_coach_roles where team_id = any(v_team_ids) or user_id = v_user_id) x), '[]'::jsonb),
+    'householdMemberships', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.household_memberships where household_id = any(v_household_ids) or user_id = v_user_id or player_id = any(v_player_ids)) x), '[]'::jsonb),
+    'playerTeamMemberships', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.player_team_memberships where team_id = any(v_team_ids) or player_id = any(v_player_ids)) x), '[]'::jsonb),
+    'recordAssociations', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.record_associations where user_id = any(v_profile_ids) or (record_type = 'organization' and record_id = any(v_org_ids)) or (record_type = 'team' and record_id = any(v_team_ids)) or (record_type = 'household' and record_id = any(v_household_ids)) or (record_type = 'player' and record_id = any(v_player_ids))) x), '[]'::jsonb),
+    'accessRequests', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.access_requests where id = any(v_request_ids)) x), '[]'::jsonb),
+    'invitations', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.invitations where accepted_by = v_user_id or invited_by = v_user_id or record_id = any(v_org_ids || v_team_ids || v_household_ids || v_player_ids)) x), '[]'::jsonb),
+    'playerData', coalesce((select jsonb_agg(to_jsonb(x) order by x.player_id) from (select * from public.player_training_state where player_id = any(v_player_ids)) x), '[]'::jsonb),
+    'events', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.calendar_events where player_id = any(v_player_ids) or team_id = any(v_team_ids)) x), '[]'::jsonb),
+    'alerts', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.alerts where player_id = any(v_player_ids) or created_by = v_user_id) x), '[]'::jsonb),
+    'decisions', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.admin_decisions where player_id = any(v_player_ids) or created_by = v_user_id) x), '[]'::jsonb),
+    'playerTags', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.player_tags where player_id = any(v_player_ids)) x), '[]'::jsonb),
+    'accessRequestDetails', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.access_request_admin_details() x where x.id = any(v_request_ids)), '[]'::jsonb)
+  );
 end;
 $$;
