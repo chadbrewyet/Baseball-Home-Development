@@ -978,7 +978,6 @@ async function startMasquerade(userId){
   localStorage.setItem(MASQUERADE_SESSION_KEY,"true");
   document.querySelector("#masquerade-shell-title").textContent=`Masquerading as ${target.name}`;
   document.querySelector("#masquerade-frame").src=`${location.pathname}${location.search || ""}`;
-  document.body.classList.add("masquerade-open");
   document.querySelector("#masquerade-shell-dialog").showModal();
 }
 async function exitMasquerade(){
@@ -987,7 +986,6 @@ async function exitMasquerade(){
   localStorage.removeItem(MASQUERADE_SESSION_KEY);
   document.querySelector("#masquerade-frame").src="about:blank";
   document.querySelector("#masquerade-shell-dialog").close();
-  document.body.classList.remove("masquerade-open");
   currentUser=actualUser;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));renderAll();
 }
 async function createAlert(type,title,message,playerId=currentPlayer?.id){
@@ -1174,6 +1172,28 @@ async function refreshProfileSections(button){
   setTimeout(()=>button?.classList.remove("refreshing"),450);
   showToast("Profile data refreshed");
 }
+
+function updateDialogScrollLock(){
+  document.body.classList.toggle("modal-open",[...document.querySelectorAll("dialog")].some(dialog=>dialog.open));
+}
+function installDialogScrollLock(){
+  if(HTMLDialogElement.prototype.__clubhouseScrollLockInstalled)return;
+  HTMLDialogElement.prototype.__clubhouseScrollLockInstalled=true;
+  const showModal=HTMLDialogElement.prototype.showModal;
+  const close=HTMLDialogElement.prototype.close;
+  HTMLDialogElement.prototype.showModal=function(...args){
+    const result=showModal.apply(this,args);
+    updateDialogScrollLock();
+    return result;
+  };
+  HTMLDialogElement.prototype.close=function(...args){
+    const result=close.apply(this,args);
+    updateDialogScrollLock();
+    return result;
+  };
+  document.querySelectorAll("dialog").forEach(dialog=>dialog.addEventListener("close",updateDialogScrollLock));
+}
+installDialogScrollLock();
 
 document.addEventListener("click",e=>{
   const v=e.target.closest("[data-view-link]");if(v){e.preventDefault();switchView(v.dataset.viewLink)}
