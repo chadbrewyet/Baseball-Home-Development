@@ -253,6 +253,10 @@ create table if not exists public.access_requests (
 );
 
 alter table public.access_requests add column if not exists status text not null default 'pending';
+alter table public.access_requests add column if not exists requested_user_id text references public.profiles(id) on delete cascade;
+alter table public.access_requests add column if not exists requested_role text;
+alter table public.access_requests add column if not exists requested_by text references public.profiles(id) on delete set null;
+alter table public.access_requests add column if not exists reason text;
 alter table public.access_requests add column if not exists decided_by text references public.profiles(id) on delete set null;
 alter table public.access_requests add column if not exists decided_at timestamptz;
 alter table public.access_requests add column if not exists created_at timestamptz not null default now();
@@ -498,6 +502,96 @@ begin
 end;
 $$;
 
+create or replace function public.materialize_record_access(
+  p_user_id text,
+  p_record_type text,
+  p_record_id text,
+  p_role text default 'member',
+  p_created_by text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_role text := coalesce(nullif(trim(p_role), ''), 'member');
+  v_player_id text;
+  v_team public.teams%rowtype;
+  v_existing_household_id text;
+  v_team_id text;
+begin
+  perform public.upsert_record_association(p_user_id, p_record_type, p_record_id, case when v_role = 'Director' then 'admin' else v_role end, p_created_by);
+
+  if p_record_type = 'team' then
+    select * into v_team from public.teams where id = p_record_id;
+    if v_role in ('Coach','admin') then
+      insert into public.team_coach_roles (id, user_id, team_id, coach_type, permissions, specializations, active, created_by)
+      values ('coach-role-' || gen_random_uuid()::text, p_user_id, p_record_id, 'assistant', '{"manageTeam":true,"managePlans":true,"manageParents":false,"manageAssistants":false}'::jsonb, '["All"]'::jsonb, true, p_created_by)
+      on conflict (user_id, team_id) do update set active = true, updated_at = now();
+    end if;
+    if v_role in ('Player','member') then
+      select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
+      if v_player_id is not null then
+        insert into public.player_team_memberships (id, player_id, team_id, active, priority, created_by)
+        values ('membership-' || gen_random_uuid()::text, v_player_id, p_record_id, true, 2, p_created_by)
+        on conflict (player_id, team_id) do update set active = true, updated_at = now();
+      end if;
+    end if;
+    if v_team.organization_id is not null then
+      perform public.upsert_record_association(p_user_id, 'organization', v_team.organization_id, case when v_role = 'admin' then 'admin' else 'member' end, p_created_by);
+    end if;
+  elsif p_record_type = 'household' then
+    select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
+    if v_role = 'Player' and v_player_id is not null then
+      select id into v_existing_household_id from public.household_memberships where household_id = p_record_id and player_id = v_player_id limit 1;
+      if v_existing_household_id is null then
+        insert into public.household_memberships (id, household_id, player_id, role, active, created_by)
+        values ('hh-' || gen_random_uuid()::text, p_record_id, v_player_id, 'player', true, p_created_by);
+      else
+        update public.household_memberships set role = 'player', active = true, updated_at = now() where id = v_existing_household_id;
+      end if;
+    else
+      select id into v_existing_household_id from public.household_memberships where household_id = p_record_id and user_id = p_user_id limit 1;
+      if v_existing_household_id is null then
+        insert into public.household_memberships (id, household_id, user_id, role, active, created_by)
+        values ('hh-' || gen_random_uuid()::text, p_record_id, p_user_id, 'parent', true, p_created_by);
+      else
+        update public.household_memberships set role = 'parent', active = true, updated_at = now() where id = v_existing_household_id;
+      end if;
+    end if;
+  elsif p_record_type = 'organization' and v_role = 'Director' then
+    insert into public.organization_roles (id, user_id, organization_id, role, active, created_by)
+    values ('org-role-' || gen_random_uuid()::text, p_user_id, p_record_id, 'director', true, p_created_by)
+    on conflict (user_id, organization_id) do update set role = 'director', active = true, updated_at = now();
+  elsif p_record_type = 'organization' and v_role = 'Player' then
+    select id into v_player_id from public.players where user_id = p_user_id and active limit 1;
+    if v_player_id is not null then
+      for v_team_id in select id from public.teams where organization_id = p_record_id and active loop
+        insert into public.player_team_memberships (id, player_id, team_id, active, priority, created_by)
+        values ('membership-' || gen_random_uuid()::text, v_player_id, v_team_id, true, 2, p_created_by)
+        on conflict (player_id, team_id) do update set active = true, updated_at = now();
+      end loop;
+    end if;
+  elsif p_record_type = 'player' then
+    update public.players set user_id = p_user_id, updated_at = now() where id = p_record_id and user_id is null;
+  end if;
+end;
+$$;
+
+create or replace function public.player_parent_approver_ids(p_user_id text)
+returns table(parent_user_id text)
+language sql
+stable
+set search_path = public
+as $$
+  select distinct hm_parent.user_id
+  from public.players pl
+  join public.household_memberships hm_player on hm_player.player_id = pl.id and hm_player.active
+  join public.household_memberships hm_parent on hm_parent.household_id = hm_player.household_id and hm_parent.role = 'parent' and hm_parent.active
+  where pl.user_id = p_user_id and pl.active and hm_parent.user_id is not null and hm_parent.user_id <> p_user_id
+$$;
+
 create or replace function public.create_record_with_admin_association(
   p_record_type text,
   p_record_id text,
@@ -594,6 +688,8 @@ declare
   v_email text := lower(trim(p_email));
   v_target text;
   v_role text := coalesce(nullif(trim(p_role), ''), 'member');
+  v_parent_id text;
+  v_parent_count integer := 0;
 begin
   if v_inviter is null then
     raise exception 'Current user profile was not found.';
@@ -606,12 +702,24 @@ begin
   select id into v_target from public.profiles where lower(username) = v_email limit 1;
   if v_target is not null then
     update public.profiles set status = 'active', updated_at = now() where id = v_target;
-    perform public.upsert_record_association(v_target, p_record_type, p_record_id, case when v_role = 'Director' then 'admin' else v_role end, v_inviter);
-    if p_record_type = 'organization' and v_role = 'Director' then
-      insert into public.organization_roles (id, user_id, organization_id, role, active, created_by)
-      values ('org-role-' || gen_random_uuid()::text, v_target, p_record_id, 'director', true, v_inviter)
-      on conflict do nothing;
+
+    if p_record_type in ('team','organization') and v_role = 'Player' then
+      for v_parent_id in select parent_user_id from public.player_parent_approver_ids(v_target) loop
+        if not exists (
+          select 1 from public.access_requests
+          where user_id = v_parent_id and requested_user_id = v_target and record_type = p_record_type and record_id = p_record_id and status = 'pending'
+        ) then
+          insert into public.access_requests (id, user_id, requested_user_id, requested_role, requested_by, reason, record_type, record_id, status)
+          values ('request-' || gen_random_uuid()::text, v_parent_id, v_target, v_role, v_inviter, 'parent_approval', p_record_type, p_record_id, 'pending');
+        end if;
+        v_parent_count := v_parent_count + 1;
+      end loop;
+      if v_parent_count > 0 then
+        return 'approval_required';
+      end if;
     end if;
+
+    perform public.materialize_record_access(v_target, p_record_type, p_record_id, v_role, v_inviter);
     return 'linked';
   end if;
 
@@ -632,6 +740,8 @@ declare
   v_email text;
   v_inv public.invitations%rowtype;
   v_count integer := 0;
+  v_parent_id text;
+  v_parent_count integer;
 begin
   if v_user_id is null then
     return 0;
@@ -647,11 +757,21 @@ begin
       set is_super_user = true, role = 'Super User', status = 'active', updated_at = now()
       where id = v_user_id;
     else
-      perform public.upsert_record_association(v_user_id, v_inv.record_type, v_inv.record_id, case when v_inv.role = 'Director' then 'admin' else coalesce(v_inv.role, 'member') end, v_inv.invited_by);
-      if v_inv.record_type = 'organization' and v_inv.role = 'Director' then
-        insert into public.organization_roles (id, user_id, organization_id, role, active, created_by)
-        values ('org-role-' || gen_random_uuid()::text, v_user_id, v_inv.record_id, 'director', true, v_inv.invited_by)
-        on conflict do nothing;
+      v_parent_count := 0;
+      if v_inv.record_type in ('team','organization') and v_inv.role = 'Player' then
+        for v_parent_id in select parent_user_id from public.player_parent_approver_ids(v_user_id) loop
+          if not exists (
+            select 1 from public.access_requests
+            where user_id = v_parent_id and requested_user_id = v_user_id and record_type = v_inv.record_type and record_id = v_inv.record_id and status = 'pending'
+          ) then
+            insert into public.access_requests (id, user_id, requested_user_id, requested_role, requested_by, reason, record_type, record_id, status)
+            values ('request-' || gen_random_uuid()::text, v_parent_id, v_user_id, v_inv.role, v_inv.invited_by, 'parent_approval', v_inv.record_type, v_inv.record_id, 'pending');
+          end if;
+          v_parent_count := v_parent_count + 1;
+        end loop;
+      end if;
+      if v_parent_count = 0 then
+        perform public.materialize_record_access(v_user_id, v_inv.record_type, v_inv.record_id, coalesce(v_inv.role, 'member'), v_inv.invited_by);
       end if;
     end if;
 
@@ -685,7 +805,7 @@ begin
   end if;
 
   if p_approve then
-    perform public.upsert_record_association(v_req.user_id, v_req.record_type, v_req.record_id, 'member', v_decider);
+    perform public.materialize_record_access(coalesce(v_req.requested_user_id, v_req.user_id), v_req.record_type, v_req.record_id, coalesce(v_req.requested_role, 'member'), v_decider);
   end if;
 
   update public.access_requests
@@ -737,11 +857,14 @@ begin
 end;
 $$;
 
+drop function if exists public.access_request_admin_details();
+
 create or replace function public.access_request_admin_details()
 returns table (
   id text,
   requester_name text,
   requester_email text,
+  approver_name text,
   record_type text,
   record_id text,
   record_name text,
@@ -756,20 +879,22 @@ begin
   return query
   select
     ar.id,
-    coalesce(p.display_name, 'Unknown user') as requester_name,
-    coalesce(p.username, '') as requester_email,
+    coalesce(rp_user.display_name, p.display_name, 'Unknown user') as requester_name,
+    coalesce(rp_user.username, p.username, '') as requester_email,
+    coalesce(p.display_name, '') as approver_name,
     ar.record_type,
     ar.record_id,
-    coalesce(o.name, t.name, h.name, pl.name, rp.display_name, ar.record_id) as record_name,
+    coalesce(o.name, t.name, h.name, pl.name, record_profile.display_name, ar.record_id) as record_name,
     ar.status,
     ar.created_at
   from public.access_requests ar
   left join public.profiles p on p.id = ar.user_id
+  left join public.profiles rp_user on rp_user.id = ar.requested_user_id
   left join public.organizations o on ar.record_type = 'organization' and o.id = ar.record_id
   left join public.teams t on ar.record_type = 'team' and t.id = ar.record_id
   left join public.households h on ar.record_type = 'household' and h.id = ar.record_id
   left join public.players pl on ar.record_type = 'player' and pl.id = ar.record_id
-  left join public.profiles rp on ar.record_type in ('coach','parent','director','superUser') and rp.id = ar.record_id
+  left join public.profiles record_profile on ar.record_type in ('coach','parent','director','superUser') and record_profile.id = ar.record_id
   where ar.status = 'pending'
   order by ar.created_at;
 end;

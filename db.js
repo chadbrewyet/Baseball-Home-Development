@@ -43,7 +43,7 @@ const ClubhouseDB = (() => {
     if(name==="householdMemberships")return {id:row.id,householdId:row.household_id,userId:row.user_id,playerId:row.player_id,role:row.role,active:row.active,createdBy:row.created_by,created:row.created_at};
     if(name==="playerTeamMemberships")return {id:row.id,playerId:row.player_id,teamId:row.team_id,active:row.active,priority:row.priority,createdBy:row.created_by,created:row.created_at};
     if(name==="recordAssociations")return {id:row.id,userId:row.user_id,recordType:row.record_type,recordId:row.record_id,role:row.role,active:row.active,createdBy:row.created_by,created:row.created_at};
-    if(name==="accessRequests")return {id:row.id,userId:row.user_id,recordType:row.record_type,recordId:row.record_id,status:row.status,decidedBy:row.decided_by,decidedAt:row.decided_at,created:row.created_at};
+    if(name==="accessRequests")return {id:row.id,userId:row.user_id,requestedUserId:row.requested_user_id,requestedRole:row.requested_role,requestedBy:row.requested_by,reason:row.reason,recordType:row.record_type,recordId:row.record_id,status:row.status,decidedBy:row.decided_by,decidedAt:row.decided_at,created:row.created_at};
     if(name==="invitations")return {id:row.id,email:row.email,recordType:row.record_type,recordId:row.record_id,role:row.role,status:row.status,invitedBy:row.invited_by,acceptedBy:row.accepted_by,acceptedAt:row.accepted_at,created:row.created_at};
     if(name==="playerData")return {id:row.player_id,data:row.data||{}};
     if(name==="events")return {...(row.data||{}),id:row.id,playerId:row.player_id,teamId:row.team_id,title:row.title,type:row.type,workload:row.workload,date:row.event_date,repeat:row.repeat,status:row.status,createdBy:row.created_by,created:row.created_at};
@@ -70,7 +70,7 @@ const ClubhouseDB = (() => {
     if(name==="householdMemberships")return {id:v.id,household_id:v.householdId,user_id:v.userId||null,player_id:v.playerId||null,role:v.role||"member",active:v.active!==false,created_by:v.createdBy};
     if(name==="playerTeamMemberships")return {id:v.id,player_id:v.playerId,team_id:v.teamId,active:v.active!==false,priority:v.priority||1,created_by:v.createdBy};
     if(name==="recordAssociations")return {id:v.id,user_id:v.userId,record_type:v.recordType,record_id:v.recordId,role:v.role||"member",active:v.active!==false,created_by:v.createdBy};
-    if(name==="accessRequests")return {id:v.id,user_id:v.userId,record_type:v.recordType,record_id:v.recordId,status:v.status||"pending",decided_by:v.decidedBy,decided_at:v.decidedAt};
+    if(name==="accessRequests")return {id:v.id,user_id:v.userId,requested_user_id:v.requestedUserId,requested_role:v.requestedRole,requested_by:v.requestedBy,reason:v.reason,record_type:v.recordType,record_id:v.recordId,status:v.status||"pending",decided_by:v.decidedBy,decided_at:v.decidedAt};
     if(name==="invitations")return {id:v.id,email:v.email,record_type:v.recordType,record_id:v.recordId,role:v.role,status:v.status||"pending",invited_by:v.invitedBy,accepted_by:v.acceptedBy,accepted_at:v.acceptedAt};
     if(name==="playerData")return {player_id:v.id,data:v.data||{},updated_at:new Date().toISOString()};
     if(name==="events")return {id:v.id,player_id:v.playerId||null,team_id:v.teamId||null,title:v.title||"Event",type:v.type,workload:v.workload,event_date:v.date||null,repeat:v.repeat,status:v.status||"active",assigned_session_id:v.assignedSessionId,data:v,created_by:v.createdBy,updated_at:new Date().toISOString()};
@@ -217,20 +217,28 @@ const ClubhouseDB = (() => {
     const role=invite.role||"member";
     await ensureRecordAssociation(user.id,invite.recordType,invite.recordId,role==="Director"?"admin":role,invite.invitedBy);
     if(invite.recordType==="team"){
-      const teamRoles=await all("teamCoachRoles"),coachRole=teamRoles.find(r=>r.userId===user.id&&r.teamId===invite.recordId);
-      const coachType=coachRole?.coachType||(role==="admin"&&!teamRoles.some(r=>r.teamId===invite.recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
-      await put("teamCoachRoles",{id:coachRole?.id||id("coachRole"),userId:user.id,teamId:invite.recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
-      const player=(await all("players")).find(p=>p.userId===user.id);
-      if(player&&!(await all("playerTeamMemberships")).some(m=>m.playerId===player.id&&m.teamId===invite.recordId&&m.active!==false))await put("playerTeamMemberships",{id:id("membership"),playerId:player.id,teamId:invite.recordId,active:true,priority:(await all("playerTeamMemberships")).some(m=>m.playerId===player.id)?2:1});
+      const teamRoles=await all("teamCoachRoles");
+      if(["Coach","admin"].includes(role)){
+        const coachRole=teamRoles.find(r=>r.userId===user.id&&r.teamId===invite.recordId);
+        const coachType=coachRole?.coachType||(role==="admin"&&!teamRoles.some(r=>r.teamId===invite.recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
+        await put("teamCoachRoles",{id:coachRole?.id||id("coachRole"),userId:user.id,teamId:invite.recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
+      }
+      if(["Player","member"].includes(role)){
+        const player=(await all("players")).find(p=>p.userId===user.id);
+        if(player&&!(await all("playerTeamMemberships")).some(m=>m.playerId===player.id&&m.teamId===invite.recordId&&m.active!==false))await put("playerTeamMemberships",{id:id("membership"),playerId:player.id,teamId:invite.recordId,active:true,priority:(await all("playerTeamMemberships")).some(m=>m.playerId===player.id)?2:1});
+      }
       const team=(await get("teams",invite.recordId));
       if(team?.organizationId)await ensureRecordAssociation(user.id,"organization",team.organizationId,role==="admin"?"admin":"member",invite.invitedBy);
     }else if(invite.recordType==="household"){
       const player=(await all("players")).find(p=>p.userId===user.id);
       const existingMember=(await all("householdMemberships")).find(m=>m.householdId===invite.recordId&&((player&&m.playerId===player.id)||m.userId===user.id));
-      await put("householdMemberships",player?{id:existingMember?.id||id("hh"),householdId:invite.recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
+      await put("householdMemberships",role==="Player"&&player?{id:existingMember?.id||id("hh"),householdId:invite.recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
     }else if(invite.recordType==="organization"&&["admin","Director"].includes(role)){
       const existingRole=(await all("organizationRoles")).find(r=>r.userId===user.id&&r.organizationId===invite.recordId);
       await put("organizationRoles",{id:existingRole?.id||id("orgRole"),userId:user.id,organizationId:invite.recordId,role:"director",active:true});
+    }else if(invite.recordType==="organization"&&role==="Player"){
+      const player=(await all("players")).find(p=>p.userId===user.id),orgTeams=(await all("teams")).filter(t=>t.organizationId===invite.recordId&&t.active!==false),memberships=await all("playerTeamMemberships");
+      if(player)for(const team of orgTeams)if(!memberships.some(m=>m.playerId===player.id&&m.teamId===team.id&&m.active!==false))await put("playerTeamMemberships",{id:id("membership"),playerId:player.id,teamId:team.id,active:true,priority:2});
     }else if(invite.recordType==="player"){
       const player=await get("players",invite.recordId);
       if(player&&!player.userId)await put("players",{...player,userId:user.id});

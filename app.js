@@ -269,14 +269,15 @@ function canEditRecord(type,record,userId=currentUser?.id){
 }
 function visibleRecords(type,userId=currentUser?.id){if(isSuperUser(users.find(u=>u.id===userId)||currentUser))return recordsForType(type);const ids=userRecordAssociations(userId,type).map(a=>a.recordId);if(type==="organization")return organizations.filter(o=>organizationIdsForUser(userId).includes(o.id));if(type==="team")return teams.filter(t=>visibleTeamIds(userId).includes(t.id));if(type==="household")return households.filter(h=>householdIdsForUser(userId).includes(h.id));if(type==="player")return players.filter(p=>visiblePlayerIds(userId).includes(p.id));if(type==="parent")return users.filter(u=>visibleParentUserIds(userId).includes(u.id));if(type==="coach")return users.filter(u=>visibleCoachUserIds(userId).includes(u.id));if(type==="director")return users.filter(u=>ids.includes(u.id)||rolesFor(u).includes("Director"));return recordsForType(type).filter(r=>ids.includes(r.id)||r.id===userId)}
 function adminRecordsForType(type){return type==="player"?[...players,...recordsForType("unassociated").map(u=>({...u,__recordType:"unassociated"}))]:recordsForType(type)}
-function pendingRequestsForAdmin(){return accessRequests.filter(r=>r.status==="pending"&&isRecordAdmin(r.recordType,r.recordId))}
+function pendingRequestsForAdmin(){return accessRequests.filter(r=>r.status==="pending"&&(isRecordAdmin(r.recordType,r.recordId)||r.userId===currentUser?.id))}
 function pendingApprovalCount(){return pendingRequestsForAdmin().length}
 function requestDetail(req){
   const detail=accessRequestDetails.find(d=>d.id===req.id)||{};
-  const user=users.find(u=>u.id===req.userId),meta=recordMeta(req.recordType),rec=recordsForType(req.recordType).find(x=>x.id===req.recordId);
+  const user=users.find(u=>u.id===(req.requestedUserId||req.userId)),approver=users.find(u=>u.id===req.userId),meta=recordMeta(req.recordType),rec=recordsForType(req.recordType).find(x=>x.id===req.recordId);
   return {
     requesterName:detail.requester_name||user?.name||"Unknown user",
     requesterEmail:detail.requester_email||user?.username||"No email available",
+    approverName:detail.approver_name||approver?.name||"",
     recordType:meta?.label||req.recordType||"Record",
     recordName:detail.record_name||recordName(rec)||"Unknown record",
     recordId:req.recordId
@@ -445,9 +446,22 @@ function associationItems(tab){
 function pendingLinkRequestsForType(type){return accessRequests.filter(r=>r.userId===currentUser?.id&&r.recordType===type&&r.status==="pending")}
 function pendingAssociationCards(type){
   return pendingLinkRequestsForType(type).map(req=>{
-    const record=recordsForType(type).find(r=>r.id===req.recordId),name=record?recordName(record):`${recordMeta(type)?.label||type} ${req.recordId}`;
-    return `<div class="association-row pending"><div><strong>${esc(name)}</strong><small>Pending link request</small><small>ID: ${esc(req.recordId)}</small></div><div class="row-actions"><button class="icon-action danger" type="button" data-cancel-link-request="${esc(req.id)}">Cancel</button></div></div>`;
+    const detail=accessRequestDetails.find(d=>d.id===req.id),record=recordsForType(type).find(r=>r.id===req.recordId),name=detail?.record_name||recordName(record)||`${recordMeta(type)?.label||type} request`;
+    return `<div class="association-row pending"><div><strong>${esc(name)}</strong><small>Pending link request</small></div><div class="row-actions"><button class="icon-action danger" type="button" data-cancel-link-request="${esc(req.id)}">Cancel</button></div></div>`;
   }).join("");
+}
+function parentApproverIdsForUser(userId){
+  const playerIds=players.filter(p=>p.userId===userId&&p.active!==false).map(p=>p.id);
+  return playerParentUserIds(playerIds).filter(id=>id!==userId);
+}
+async function createParentApprovalRequests(targetUserId,type,recordId,role,requestedBy=currentUser?.id){
+  const parentIds=parentApproverIdsForUser(targetUserId);
+  if(!parentIds.length)return false;
+  for(const parentId of parentIds){
+    const existing=accessRequests.find(r=>r.userId===parentId&&r.requestedUserId===targetUserId&&r.recordType===type&&r.recordId===recordId&&r.status==="pending");
+    if(!existing)await ClubhouseDB.put("accessRequests",{id:ClubhouseDB.id("request"),userId:parentId,requestedUserId:targetUserId,requestedRole:role,requestedBy,reason:"parent_approval",recordType:type,recordId,status:"pending",created:new Date().toISOString()});
+  }
+  return true;
 }
 function scopedRoleLabel(type,record){
   if(type==="household"){
@@ -520,8 +534,10 @@ function associationDetail(type,record){
   }
   if(type==="organization"){
     const orgTeams=teams.filter(t=>t.organizationId===record.id&&t.active!==false);
-    const directorRows=organizationRoles.filter(r=>r.organizationId===record.id&&r.active!==false).map(r=>associationMemberRow(type,record.id,"director",users.find(u=>u.id===r.userId)||{id:r.userId,name:"Unknown director"},r.role||"director"));
-    const coachRows=teamCoachRoles.filter(r=>orgTeams.some(t=>t.id===r.teamId)&&r.active!==false).map(r=>associationMemberRow(type,record.id,"coach",users.find(u=>u.id===r.userId)||{id:r.userId,name:"Unknown coach"},`${teams.find(t=>t.id===r.teamId)?.name||"Team"} / ${r.coachType||"coach"} / ${(r.specializations||["All"]).join(", ")}`));
+    const directDirectorIds=recordAssociations.filter(a=>a.recordType==="organization"&&a.recordId===record.id&&a.role==="Director"&&a.active!==false).map(a=>a.userId);
+    const directorRows=[...new Set([...organizationRoles.filter(r=>r.organizationId===record.id&&r.active!==false).map(r=>r.userId),...directDirectorIds])].map(uid=>associationMemberRow(type,record.id,"director",users.find(u=>u.id===uid)||{id:uid,name:"Unknown director"},"director"));
+    const directCoachIds=recordAssociations.filter(a=>a.recordType==="organization"&&a.recordId===record.id&&a.role==="Coach"&&a.active!==false).map(a=>a.userId);
+    const coachRows=[...teamCoachRoles.filter(r=>orgTeams.some(t=>t.id===r.teamId)&&r.active!==false).map(r=>associationMemberRow(type,record.id,"coach",users.find(u=>u.id===r.userId)||{id:r.userId,name:"Unknown coach"},`${teams.find(t=>t.id===r.teamId)?.name||"Team"} / ${r.coachType||"coach"} / ${(r.specializations||["All"]).join(", ")}`)),...directCoachIds.map(uid=>associationMemberRow(type,record.id,"coach",users.find(u=>u.id===uid)||{id:uid,name:"Unknown coach"},"organization coach"))];
     const teamRows=orgTeams.map(t=>associationMemberRow(type,record.id,"team",t,t.season||""));
     return `${associationSectionBlock("Directors",directorRows,"No directors linked.")}${associationSectionBlock("Coaches",coachRows,"No coaches linked.")}${associationSectionBlock("Teams",teamRows,"No teams linked.")}`;
   }
@@ -976,13 +992,13 @@ async function deleteRecord(type,recordId){
   for(const req of accessRequests.filter(r=>r.recordType===type&&r.recordId===recordId))await ClubhouseDB.remove("accessRequests",req.id);
 }
 async function approveRecordRequest(id){
-  const req=accessRequests.find(r=>r.id===id);if(!req||!isRecordAdmin(req.recordType,req.recordId))return;
+  const req=accessRequests.find(r=>r.id===id);if(!req||!(isRecordAdmin(req.recordType,req.recordId)||req.userId===currentUser?.id))return;
   if(await ClubhouseDB.decideRecordLinkRequest(id,true))return;
-  await grantRecordAccess(req.userId,req.recordType,req.recordId,"member");
+  await grantRecordAccess(req.requestedUserId||req.userId,req.recordType,req.recordId,req.requestedRole||"member");
   req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function denyRecordRequest(id){
-  const req=accessRequests.find(r=>r.id===id);if(!req||!isRecordAdmin(req.recordType,req.recordId))return;
+  const req=accessRequests.find(r=>r.id===id);if(!req||!(isRecordAdmin(req.recordType,req.recordId)||req.userId===currentUser?.id))return;
   if(await ClubhouseDB.decideRecordLinkRequest(id,false))return;
   req.status="denied";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
@@ -994,6 +1010,9 @@ async function inviteToRecord(type,recordId,email,role="member"){
   const normalized=email.toLowerCase(),existing=users.find(u=>u.username?.toLowerCase()===normalized);
   if(existing){
     existing.status="active";await ClubhouseDB.put("users",existing);
+    if(role==="Player"&&["team","organization"].includes(type)&&await createParentApprovalRequests(existing.id,type,recordId,role)){
+      return "approval_required";
+    }
     await grantRecordAccess(existing.id,type,recordId,role);
     return "linked";
   }
@@ -1003,20 +1022,27 @@ async function inviteToRecord(type,recordId,email,role="member"){
 async function grantRecordAccess(userId,type,recordId,role="member"){
   await ensureRecordAssociation(userId,type,recordId,role==="Director"?"admin":role);
   if(type==="team"){
-    const coachRole=teamCoachRoles.find(r=>r.userId===userId&&r.teamId===recordId);
-    const coachType=coachRole?.coachType||(role==="admin"&&!teamCoachRoles.some(r=>r.teamId===recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
-    await ClubhouseDB.put("teamCoachRoles",{id:coachRole?.id||ClubhouseDB.id("coachRole"),userId,teamId:recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
-    const player=players.find(p=>p.userId===userId);
-    if(player&&!playerTeamMemberships.some(m=>m.playerId===player.id&&m.teamId===recordId&&m.active!==false))await ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),playerId:player.id,teamId:recordId,active:true,priority:playerTeamMemberships.some(m=>m.playerId===player.id)?2:1});
+    if(["Coach","admin"].includes(role)){
+      const coachRole=teamCoachRoles.find(r=>r.userId===userId&&r.teamId===recordId);
+      const coachType=coachRole?.coachType||(role==="admin"&&!teamCoachRoles.some(r=>r.teamId===recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
+      await ClubhouseDB.put("teamCoachRoles",{id:coachRole?.id||ClubhouseDB.id("coachRole"),userId,teamId:recordId,coachType,permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType==="head",manageAssistants:coachType==="head"},specializations:coachRole?.specializations||["All"],active:true});
+    }
+    if(["Player","member"].includes(role)){
+      const player=players.find(p=>p.userId===userId);
+      if(player&&!playerTeamMemberships.some(m=>m.playerId===player.id&&m.teamId===recordId&&m.active!==false))await ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),playerId:player.id,teamId:recordId,active:true,priority:playerTeamMemberships.some(m=>m.playerId===player.id)?2:1});
+    }
     const team=teams.find(t=>t.id===recordId);
     if(team?.organizationId)await ensureRecordAssociation(userId,"organization",team.organizationId,role==="admin"?"admin":"member");
   }else if(type==="household"){
     const player=players.find(p=>p.userId===userId);
     const existingMember=householdMemberships.find(m=>m.householdId===recordId&&((player&&m.playerId===player.id)||m.userId===userId));
-    await ClubhouseDB.put("householdMemberships",player?{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,userId,role:"parent",active:true});
+    await ClubhouseDB.put("householdMemberships",role==="Player"&&player?{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||ClubhouseDB.id("hh"),householdId:recordId,userId,role:"parent",active:true});
   }else if(type==="organization"&&["admin","Director"].includes(role)){
     const existingRole=organizationRoles.find(r=>r.userId===userId&&r.organizationId===recordId);
     await ClubhouseDB.put("organizationRoles",{id:existingRole?.id||ClubhouseDB.id("orgRole"),userId,organizationId:recordId,role:"director",active:true});
+  }else if(type==="organization"&&role==="Player"){
+    const player=players.find(p=>p.userId===userId),orgTeamIds=teams.filter(t=>t.organizationId===recordId&&t.active!==false).map(t=>t.id);
+    if(player)for(const teamId of orgTeamIds)if(!playerTeamMemberships.some(m=>m.playerId===player.id&&m.teamId===teamId&&m.active!==false))await ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),playerId:player.id,teamId,active:true,priority:2});
   }else if(type==="player"){
     const player=players.find(p=>p.id===recordId);
     if(player&&!player.userId)await ClubhouseDB.put("players",{...player,userId});
@@ -1127,7 +1153,7 @@ document.addEventListener("submit",async e=>{
   if(e.target.id==="invite-form"){
     e.preventDefault();
     const result=await inviteToRecord(document.querySelector("#invite-type").value,document.querySelector("#invite-record-id").value,document.querySelector("#invite-email").value.trim(),document.querySelector("#invite-role").value||"member");
-    document.querySelector("#invite-dialog").close();await refreshRecords();renderAll();showToast(result==="linked"?"User linked":"Invitation stored");
+    document.querySelector("#invite-dialog").close();await refreshRecords();renderAll();showToast(result==="approval_required"?"Parent approval requested":result==="linked"?"User linked":"Invitation stored");
   }
 });
 document.querySelector("#menu-button").onclick=()=>document.querySelector(".sidebar").classList.toggle("open");
