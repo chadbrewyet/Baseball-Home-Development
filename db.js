@@ -215,7 +215,7 @@ const ClubhouseDB = (() => {
   }
   async function grantInviteAccess(user,invite){
     const role=invite.role||"member";
-    await ensureRecordAssociation(user.id,invite.recordType,invite.recordId,role,invite.invitedBy);
+    await ensureRecordAssociation(user.id,invite.recordType,invite.recordId,role==="Director"?"admin":role,invite.invitedBy);
     if(invite.recordType==="team"){
       const teamRoles=await all("teamCoachRoles"),coachRole=teamRoles.find(r=>r.userId===user.id&&r.teamId===invite.recordId);
       const coachType=coachRole?.coachType||(role==="admin"&&!teamRoles.some(r=>r.teamId===invite.recordId&&r.coachType==="head"&&r.active!==false)?"head":"assistant");
@@ -228,7 +228,7 @@ const ClubhouseDB = (() => {
       const player=(await all("players")).find(p=>p.userId===user.id);
       const existingMember=(await all("householdMemberships")).find(m=>m.householdId===invite.recordId&&((player&&m.playerId===player.id)||m.userId===user.id));
       await put("householdMemberships",player?{id:existingMember?.id||id("hh"),householdId:invite.recordId,playerId:player.id,role:"player",active:true}:{id:existingMember?.id||id("hh"),householdId:invite.recordId,userId:user.id,role:"parent",active:true});
-    }else if(invite.recordType==="organization"&&role==="admin"){
+    }else if(invite.recordType==="organization"&&["admin","Director"].includes(role)){
       const existingRole=(await all("organizationRoles")).find(r=>r.userId===user.id&&r.organizationId===invite.recordId);
       await put("organizationRoles",{id:existingRole?.id||id("orgRole"),userId:user.id,organizationId:invite.recordId,role:"director",active:true});
     }else if(invite.recordType==="player"){

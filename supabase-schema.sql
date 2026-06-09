@@ -590,6 +590,7 @@ declare
   v_inviter text := public.current_profile_id();
   v_email text := lower(trim(p_email));
   v_target text;
+  v_role text := coalesce(nullif(trim(p_role), ''), 'member');
 begin
   if v_inviter is null then
     raise exception 'Current user profile was not found.';
@@ -602,12 +603,17 @@ begin
   select id into v_target from public.profiles where lower(username) = v_email limit 1;
   if v_target is not null then
     update public.profiles set status = 'active', updated_at = now() where id = v_target;
-    perform public.upsert_record_association(v_target, p_record_type, p_record_id, coalesce(nullif(trim(p_role), ''), 'member'), v_inviter);
+    perform public.upsert_record_association(v_target, p_record_type, p_record_id, case when v_role = 'Director' then 'admin' else v_role end, v_inviter);
+    if p_record_type = 'organization' and v_role = 'Director' then
+      insert into public.organization_roles (id, user_id, organization_id, role, active, created_by)
+      values ('org-role-' || gen_random_uuid()::text, v_target, p_record_id, 'director', true, v_inviter)
+      on conflict do nothing;
+    end if;
     return 'linked';
   end if;
 
   insert into public.invitations (id, email, record_type, record_id, role, status, invited_by)
-  values ('invite-' || gen_random_uuid()::text, v_email, p_record_type, p_record_id, coalesce(nullif(trim(p_role), ''), 'member'), 'pending', v_inviter);
+  values ('invite-' || gen_random_uuid()::text, v_email, p_record_type, p_record_id, v_role, 'pending', v_inviter);
   return 'pending';
 end;
 $$;
@@ -638,7 +644,12 @@ begin
       set is_super_user = true, role = 'Super User', status = 'active', updated_at = now()
       where id = v_user_id;
     else
-      perform public.upsert_record_association(v_user_id, v_inv.record_type, v_inv.record_id, coalesce(v_inv.role, 'member'), v_inv.invited_by);
+      perform public.upsert_record_association(v_user_id, v_inv.record_type, v_inv.record_id, case when v_inv.role = 'Director' then 'admin' else coalesce(v_inv.role, 'member') end, v_inv.invited_by);
+      if v_inv.record_type = 'organization' and v_inv.role = 'Director' then
+        insert into public.organization_roles (id, user_id, organization_id, role, active, created_by)
+        values ('org-role-' || gen_random_uuid()::text, v_user_id, v_inv.record_id, 'director', true, v_inv.invited_by)
+        on conflict do nothing;
+      end if;
     end if;
 
     update public.invitations
