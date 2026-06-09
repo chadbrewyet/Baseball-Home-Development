@@ -137,9 +137,9 @@ const ClubhouseDB = (() => {
     }
     return null;
   }
-  async function inviteOrLinkUserToRecord(type,recordId,email){
+  async function inviteOrLinkUserToRecord(type,recordId,email,role="member"){
     if(hasRemote()&&await authed()){
-      const {data,error}=await sb.rpc("invite_or_link_user_to_record",{p_record_type:type,p_record_id:recordId,p_email:email});
+      const {data,error}=await sb.rpc("invite_or_link_user_to_record",{p_record_type:type,p_record_id:recordId,p_email:email,p_role:role});
       if(error)throw error;
       return data;
     }

@@ -573,10 +573,13 @@ begin
 end;
 $$;
 
+drop function if exists public.invite_or_link_user_to_record(text, text, text);
+
 create or replace function public.invite_or_link_user_to_record(
   p_record_type text,
   p_record_id text,
-  p_email text
+  p_email text,
+  p_role text default 'member'
 )
 returns text
 language plpgsql
@@ -599,12 +602,12 @@ begin
   select id into v_target from public.profiles where lower(username) = v_email limit 1;
   if v_target is not null then
     update public.profiles set status = 'active', updated_at = now() where id = v_target;
-    perform public.upsert_record_association(v_target, p_record_type, p_record_id, 'member', v_inviter);
+    perform public.upsert_record_association(v_target, p_record_type, p_record_id, coalesce(nullif(trim(p_role), ''), 'member'), v_inviter);
     return 'linked';
   end if;
 
   insert into public.invitations (id, email, record_type, record_id, role, status, invited_by)
-  values ('invite-' || gen_random_uuid()::text, v_email, p_record_type, p_record_id, 'member', 'pending', v_inviter);
+  values ('invite-' || gen_random_uuid()::text, v_email, p_record_type, p_record_id, coalesce(nullif(trim(p_role), ''), 'member'), 'pending', v_inviter);
   return 'pending';
 end;
 $$;

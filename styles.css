@@ -201,11 +201,18 @@ textarea { resize: vertical; }
 .association-pane.active { display: block; }
 .association-list { display: grid; gap: 8px; }
 .association-row, .association-member { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 7px; padding: 12px; background: #f7f9fb; }
+.association-row.clickable { cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
+.association-row.clickable:hover { background: #eaf4fb; border-color: #b9d4e8; transform: translateY(-1px); }
 .association-row strong, .association-row small, .association-member strong, .association-member small { display: block; }
 .association-row small, .association-member small { color: var(--muted); font-size: 10px; margin-top: 3px; }
 .association-dialog-body { padding: 25px; display: grid; gap: 18px; }
+.association-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .association-detail-section { display: grid; gap: 8px; margin-top: 14px; }
 .association-detail-section h3 { margin: 0; font: 600 17px Oswald; text-transform: uppercase; }
+.entity-facts { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 8px; }
+.entity-facts div { border: 1px solid var(--line); border-radius: 7px; padding: 10px; background: #f7f9fb; }
+.entity-facts strong, .entity-facts span { display: block; }
+.entity-facts strong { font-size: 10px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
 .empty-state.compact { padding: 18px; }
 .table-wrap { overflow-x: auto; }
 .profile-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -216,6 +223,7 @@ textarea { resize: vertical; }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .icon-action { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 5px; padding: 7px 9px; font-size: 10px; font-weight: 800; }
 .icon-action.danger { border-color: #d78532; color: #9a3412; }
+.text-button.danger { color: #9a3412; }
 .settings-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 14px; }
 .settings-row strong, .settings-row small { display: block; }
 .settings-row small { color: var(--muted); font-size: 11px; margin-top: 3px; }
