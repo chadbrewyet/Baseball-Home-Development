@@ -637,7 +637,9 @@ function associationDetail(type,record){
 }
 function entityRecord(type,id){return recordsForType(type).find(r=>r.id===id)}
 function userAssociationDetail(user){
-  const userPlayers=players.filter(p=>p.userId===user.id&&p.active!==false);
+  const userPlayerIds=players.filter(p=>p.userId===user.id&&p.active!==false).map(p=>p.id);
+  const detailPlayerIds=[...new Set([...userPlayerIds,...householdPlayerIds(user.id)])];
+  const userPlayers=detailPlayerIds.map(id=>players.find(p=>p.id===id)).filter(Boolean);
   const hhIds=householdIdsForUser(user.id),teamIds=visibleTeamIds(user.id),orgIds=organizationIdsForUser(user.id);
   const roleBlock=`<section class="association-detail-section"><h3>Basic Information</h3><div class="entity-facts"><div><strong>Email</strong><span>${esc(user.username||"No email")}</span></div><div><strong>Roles</strong><span>${esc(rolesFor(user).join(", ")||"None")}</span></div><div><strong>Status</strong><span>${esc(user.status||"active")}</span></div></div></section>`;
   return roleBlock+
@@ -976,6 +978,7 @@ async function startMasquerade(userId){
   localStorage.setItem(MASQUERADE_SESSION_KEY,"true");
   document.querySelector("#masquerade-shell-title").textContent=`Masquerading as ${target.name}`;
   document.querySelector("#masquerade-frame").src=`${location.pathname}${location.search || ""}`;
+  document.body.classList.add("masquerade-open");
   document.querySelector("#masquerade-shell-dialog").showModal();
 }
 async function exitMasquerade(){
@@ -984,6 +987,7 @@ async function exitMasquerade(){
   localStorage.removeItem(MASQUERADE_SESSION_KEY);
   document.querySelector("#masquerade-frame").src="about:blank";
   document.querySelector("#masquerade-shell-dialog").close();
+  document.body.classList.remove("masquerade-open");
   currentUser=actualUser;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));renderAll();
 }
 async function createAlert(type,title,message,playerId=currentPlayer?.id){
@@ -1222,6 +1226,13 @@ document.addEventListener("click",e=>{
   if(e.target.closest("#install-app")){if(deferredInstallPrompt){deferredInstallPrompt.prompt();deferredInstallPrompt=null}else showToast(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)?"Use Add to Home Screen in your browser menu.":"Use the browser install option, if available.")}
   if(!e.target.closest(".avatar-wrap"))document.querySelector("#profile-menu").hidden=true;
   if(!e.target.closest(".profile-actions")&&!e.target.closest(".floating-menu"))document.querySelector(".floating-menu")?.remove();
+});
+document.querySelectorAll("dialog").forEach(dialog=>{
+  if(dialog.id==="masquerade-shell-dialog"){
+    dialog.addEventListener("cancel",e=>e.preventDefault());
+    return;
+  }
+  dialog.addEventListener("click",e=>{if(e.target===dialog)dialog.close()});
 });
 document.addEventListener("change",e=>{if(e.target.matches("[data-variation-slot]"))updateVariationWarnings();if(e.target.id==="log-workout")renderLogDrills()});
 document.addEventListener("change",e=>{
