@@ -444,6 +444,8 @@ create or replace function public.current_profile_id()
 returns text
 language sql
 stable
+security definer
+set search_path = public
 as $$
   select id from public.profiles where auth_user_id = auth.uid() limit 1
 $$;
@@ -452,6 +454,7 @@ create or replace function public.record_exists(p_record_type text, p_record_id 
 returns boolean
 language plpgsql
 stable
+set search_path = public
 as $$
 begin
   return case p_record_type
