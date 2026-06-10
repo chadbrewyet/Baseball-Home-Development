@@ -1319,7 +1319,7 @@ document.addEventListener("submit",async e=>{
   }
   if(e.target.id==="link-form"){
     e.preventDefault();
-    const type=document.querySelector("#link-type").value,recordId=document.querySelector("#link-record-id").value.trim(),remoteResult=await ClubhouseDB.requestRecordLink(type,recordId);
+    const type=document.querySelector("#link-type").value,recordId=document.querySelector("#link-record-id").value.trim(),remoteResult=isMasquerading()?null:await ClubhouseDB.requestRecordLink(type,recordId);
     if(remoteResult){
       document.querySelector("#link-dialog").close();await refreshRecords();renderAll();showToast(remoteResult==="already_linked"?"Already linked":"Link request submitted");return;
     }
