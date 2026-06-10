@@ -320,6 +320,7 @@ function requestDetail(req){
     approverName:detail.approver_name||approver?.name||"",
     recordType:meta?.label||req.recordType||"Record",
     recordName:detail.record_name||recordName(rec)||"Unknown record",
+    requestedRole:req.requestedRole||"member",
     recordId:req.recordId
   };
 }
@@ -539,7 +540,7 @@ function recordTable(type,items,adminMode=false){
 }
 function adminRecordActions(record,type){const canMasq=["coach","player","unassociated"].includes(type)||["Director","Parent","Player","Coach"].some(role=>rolesFor(record).includes(role));const canDelete=!(type==="superUser"&&record.id===actualUser?.id);return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record data-record-type="${type}" data-record-id="${esc(record.id)}">Edit</button>${type==="unassociated"?`<button class="icon-action" title="Make Super User" data-promote-super="${esc(record.id)}">Make Super</button>`:""}${canMasq&&!isSuperUser(record)?`<button class="icon-action" title="Masquerade" data-masquerade-user="${esc(record.userId||record.id)}">Masq</button>`:""}${canDelete?`<button class="icon-action danger" title="Delete" data-delete-record data-record-type="${type}" data-record-id="${esc(record.id)}">Delete</button>`:""}</div>`}
 function profileAssociationSection(meta){const items=visibleRecords(meta.type);if(!items.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Associated records</p><h2>${recordPlural(meta.type)}</h2></div></div>${recordTable(meta.type,items)}</article>`}
-function pendingRequestSection(always=false){const reqs=pendingRequestsForAdmin();if(!reqs.length&&!always)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.length?reqs.map(r=>{const d=requestDetail(r);return `<div class="manage-row"><div><strong>${esc(d.requesterName)}</strong><small>${esc(d.requesterEmail)}</small><small>Wants access to ${esc(d.recordType)}: ${esc(d.recordName)}</small><small>ID: ${esc(d.recordId)}</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join(""):`<div class="empty-state compact">No pending requests.</div>`}</article>`}
+function pendingRequestSection(always=false){const reqs=pendingRequestsForAdmin();if(!reqs.length&&!always)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.length?reqs.map(r=>{const d=requestDetail(r);return `<div class="manage-row"><div><strong>${esc(d.requesterName)}</strong><small>${esc(d.requesterEmail)}</small><small>Wants ${esc(requestRoleLabel(d.requestedRole))} access to ${esc(d.recordType)}: ${esc(d.recordName)}</small><small>ID: ${esc(d.recordId)}</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join(""):`<div class="empty-state compact">No pending requests.</div>`}</article>`}
 function refreshButton(){return `<button class="secondary-button refresh-button" type="button" id="refresh-profile"><span class="refresh-icon">R</span> Refresh</button>`}
 const ASSOCIATION_TABS=[
   {key:"household",label:"Household",type:"household"},
@@ -672,6 +673,12 @@ function scopedInviteRoles(type){
   if(type==="team")return ["Coach","Player","Parent"];
   return [];
 }
+function linkRequestRoles(type){
+  const roles=scopedInviteRoles(type);
+  if(type==="player")return ["Player"];
+  return roles.length?roles:["member"];
+}
+function requestRoleLabel(role){return role==="member"?"Member":role}
 function associationModalActions(type,record){
   const roles=scopedInviteRoles(type),canInvite=isRecordAdmin(type,record.id)||canEditRecord(type,record);
   return `<div class="association-modal-actions">${canInvite?roles.map(role=>`<button class="secondary-button" type="button" data-scoped-invite data-invite-role="${role}" data-record-type="${type}" data-record-id="${esc(record.id)}">Invite ${role}</button>`).join(""):""}<button class="text-button danger" type="button" data-leave-association data-record-type="${type}" data-record-id="${esc(record.id)}">Leave</button></div>`;
@@ -686,7 +693,7 @@ function canManageScopeMembers(scopeType,scopeId){
 }
 function associationMemberRow(scopeType,scopeId,entityType,record,detail="",removable=true){
   const encoded=`data-scope-type="${scopeType}" data-scope-id="${esc(scopeId)}" data-entity-type="${entityType}" data-entity-id="${esc(record.id)}"`;
-  const editable=canEditRecord(entityType,record),canRemove=removable&&canManageScopeMembers(scopeType,scopeId);
+  const editable=canEditRecord(entityType,record)||canManageScopeMembers(scopeType,scopeId),canRemove=removable&&canManageScopeMembers(scopeType,scopeId);
   return `<div class="association-member"><div><strong>${esc(recordName(record))}</strong>${detail?`<small>${esc(detail)}</small>`:""}</div><div class="row-actions"><button class="icon-action" type="button" data-view-entity ${encoded}>View</button>${editable?`<button class="icon-action" type="button" data-edit-entity ${encoded}>Edit</button>`:""}${canRemove?`<button class="icon-action danger" type="button" data-remove-entity-association ${encoded}>Remove</button>`:""}</div></div>`;
 }
 function openAssociationDetail(type,id){
@@ -775,10 +782,52 @@ function openEntityDetail(type,id){
   document.querySelector("#association-detail").innerHTML=["coach","parent","director","superUser","unassociated","individual"].includes(type)?userAssociationDetail(record):type==="player"?playerBasicFacts(record)+associationDetail(type,record):recordBasicFacts(type,record)+associationDetail(type,record);
   document.querySelector("#association-dialog").showModal();
 }
-async function editEntity(type,id){
+function entityUserId(type,id){return type==="player"?playerById(id)?.userId:id}
+async function updateScopedMember(scopeType,scopeId,entityType,entityId){
+  if(!canManageScopeMembers(scopeType,scopeId)){alert("You do not have permission to edit members in this association.");return false}
+  const userId=entityUserId(entityType,entityId);
+  if(!userId){alert("This entity is not linked to a user account yet.");return false}
+  if(scopeType==="team"){
+    const current=teamCoachRoles.some(r=>r.userId===userId&&r.teamId===scopeId&&r.active!==false)?"Coach":playerById(entityId)||players.some(p=>p.userId===userId&&playerTeamMemberships.some(m=>m.playerId===p.id&&m.teamId===scopeId&&m.active!==false))?"Player":"Parent";
+    const role=prompt("Set team role (Coach, Parent, Player):",current);if(!role)return false;
+    const normalized=role.trim().toLowerCase(),next=normalized==="coach"?"Coach":normalized==="player"?"Player":normalized==="parent"?"Parent":"";
+    if(!next){alert("Use Coach, Parent, or Player.");return false}
+    if(next!=="Coach")for(const r of teamCoachRoles.filter(r=>r.userId===userId&&r.teamId===scopeId))await ClubhouseDB.remove("teamCoachRoles",r.id);
+    if(next==="Coach"){
+      await activateUserRole(userId,"Coach");
+      await ensureRecordAssociation(userId,"team",scopeId,"Coach");
+      const team=teamById(scopeId);if(team?.organizationId)await ensureRecordAssociation(userId,"organization",team.organizationId,"member");
+      const coachRole=teamCoachRoles.find(r=>r.userId===userId&&r.teamId===scopeId),coachType=prompt("Coach type (head or assistant):",coachRole?.coachType||"assistant");
+      if(coachType&&["head","assistant"].includes(coachType.trim().toLowerCase())){
+        const specs=prompt("Skill focus, comma separated:",(coachRole?.specializations||["All"]).join(", "));
+        await ClubhouseDB.put("teamCoachRoles",{id:coachRole?.id||ClubhouseDB.id("coachRole"),userId,teamId:scopeId,coachType:coachType.trim().toLowerCase(),permissions:coachRole?.permissions||{manageTeam:true,managePlans:true,manageParents:coachType.trim().toLowerCase()==="head",manageAssistants:coachType.trim().toLowerCase()==="head"},specializations:(specs||"All").split(",").map(s=>s.trim()).filter(Boolean),active:true});
+      }
+    }else await grantRecordAccess(userId,"team",scopeId,next);
+    return true;
+  }
+  if(scopeType==="organization"){
+    const role=prompt("Set organization role (Director, Coach, Parent, Player):",organizationRoles.some(r=>r.userId===userId&&r.organizationId===scopeId&&r.active!==false)?"Director":"Coach");if(!role)return false;
+    const normalized=role.trim().toLowerCase(),next=normalized==="director"?"Director":normalized==="coach"?"Coach":normalized==="parent"?"Parent":normalized==="player"?"Player":"";
+    if(!next){alert("Use Director, Coach, Parent, or Player.");return false}
+    if(next!=="Director")for(const r of organizationRoles.filter(r=>r.userId===userId&&r.organizationId===scopeId))await ClubhouseDB.remove("organizationRoles",r.id);
+    await grantRecordAccess(userId,"organization",scopeId,next);
+    return true;
+  }
+  if(scopeType==="household"){
+    const role=prompt("Set household role (Parent or Player):",householdMemberships.some(m=>m.householdId===scopeId&&m.userId===userId&&m.role==="parent"&&m.active!==false)?"Parent":"Player");if(!role)return false;
+    const normalized=role.trim().toLowerCase(),next=normalized==="parent"?"Parent":normalized==="player"?"Player":"";
+    if(!next){alert("Use Parent or Player.");return false}
+    await grantRecordAccess(userId,"household",scopeId,next);
+    return true;
+  }
+  return false;
+}
+async function editEntity(type,id,scopeType="",scopeId=""){
+  if(scopeType&&scopeType!=="user"&&scopeType!=="directory"&&canManageScopeMembers(scopeType,scopeId))return await updateScopedMember(scopeType,scopeId,type,id)?"association":undefined;
   const record=entityRecord(type,id);if(!record||!canEditRecord(type,record)){alert("You do not have permission to edit this record.");return}
   const name=prompt("Update name:",recordName(record));if(!name)return;
   await updateRecordName(type,id,name.trim());
+  return "record";
 }
 async function removeRecordAssociationsFor(userId,type,recordId){
   for(const assoc of recordAssociations.filter(a=>a.userId===userId&&a.recordType===type&&a.recordId===recordId))await ClubhouseDB.remove("recordAssociations",assoc.id);
@@ -855,7 +904,7 @@ async function cancelLinkRequest(id){
 }
 function renderAlerts(){
   const visible=alerts.filter(alertVisible).sort((a,b)=>b.created.localeCompare(a.created)),approvals=pendingRequestsForAdmin();
-  const approvalItems=approvals.map(r=>{const d=requestDetail(r);return `<article class="agenda-item unread"><time>Pending</time><div><span class="tag">Approval</span><h3>${esc(d.recordType)} access request</h3><p><strong>${esc(d.requesterName)}</strong> (${esc(d.requesterEmail)}) wants access to ${esc(d.recordName)}.</p><p><small>Record ID: ${esc(d.recordId)}</small></p><div class="conflict-actions"><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div></article>`}).join("");
+  const approvalItems=approvals.map(r=>{const d=requestDetail(r);return `<article class="agenda-item unread"><time>Pending</time><div><span class="tag">Approval</span><h3>${esc(d.recordType)} access request</h3><p><strong>${esc(d.requesterName)}</strong> (${esc(d.requesterEmail)}) wants ${esc(requestRoleLabel(d.requestedRole))} access to ${esc(d.recordName)}.</p><p><small>Record ID: ${esc(d.recordId)}</small></p><div class="conflict-actions"><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div></article>`}).join("");
   const alertItems=visible.map(a=>`<article class="agenda-item ${a.read?"":"unread"}"><time>${fmtDate(a.created.slice(0,10))}</time><div><span class="tag">${a.type}</span><h3>${a.title}</h3><p>${a.message}</p>${a.status==="pending"&&isAdmin()?`<div class="conflict-actions"><button data-pain-decision="allow" data-alert-id="${a.id}">Allow this session</button><button data-pain-decision="remove" data-alert-id="${a.id}">Remove throwing</button></div>`:""}</div></article>`).join("");
   document.querySelector("#alert-list").innerHTML=approvalItems+alertItems||`<div class="empty-state">No alerts.</div>`;
 }
@@ -1190,6 +1239,7 @@ function openLinkRecord(type){
   document.querySelector("#link-title").textContent=`Link ${meta.label}`;
   document.querySelector("#link-type").value=type;
   document.querySelector("#link-record-id").value="";
+  document.querySelector("#link-role").innerHTML=linkRequestRoles(type).map(role=>`<option value="${esc(role)}">${esc(requestRoleLabel(role))}</option>`).join("");
   document.querySelector("#link-dialog").showModal();
 }
 function openInviteRecord(type,recordId){
@@ -1216,9 +1266,9 @@ async function deleteRecord(type,recordId){
 }
 async function approveRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!canDecideRecordRequest(req))return;
-  if(!isMasquerading()&&await ClubhouseDB.decideRecordLinkRequest(id,true))return;
+  const remoteDecided=!isMasquerading()&&await ClubhouseDB.decideRecordLinkRequest(id,true);
   await grantRecordAccess(req.requestedUserId||req.userId,req.recordType,req.recordId,req.requestedRole||"member");
-  req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
+  if(!remoteDecided){req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);}
 }
 async function denyRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!canDecideRecordRequest(req))return;
@@ -1242,7 +1292,16 @@ async function inviteToRecord(type,recordId,email,role="member"){
   await ClubhouseDB.put("invitations",{id:ClubhouseDB.id("invite"),email:normalized,recordType:type,recordId,role,status:"pending",invitedBy:currentUser.id,created:new Date().toISOString()});
   return "pending";
 }
+async function activateUserRole(userId,role){
+  if(!["Director","Coach","Parent","Player","Super User"].includes(role))return;
+  const user=users.find(u=>u.id===userId);if(!user)return;
+  user.status="active";
+  user.roles=[...new Set([...normalizeRoles(user),role])];
+  if(role==="Player"&&!user.recordType)user.recordType="player";
+  await ClubhouseDB.put("users",user);
+}
 async function grantRecordAccess(userId,type,recordId,role="member"){
+  await activateUserRole(userId,role);
   await ensureRecordAssociation(userId,type,recordId,role==="Director"?"admin":role);
   let rolePlayer=players.find(p=>p.userId===userId&&p.active!==false);
   if(role==="Player"&&!rolePlayer){
@@ -1366,7 +1425,7 @@ document.addEventListener("click",e=>{
   const scopedInvite=e.target.closest("[data-scoped-invite]");if(scopedInvite){openScopedInvite(scopedInvite.dataset.inviteRole,scopedInvite.dataset.recordType,scopedInvite.dataset.recordId);return}
   const leaveAssoc=e.target.closest("[data-leave-association]");if(leaveAssoc)leaveAssociation(leaveAssoc.dataset.recordType,leaveAssoc.dataset.recordId).then(async()=>{document.querySelector("#association-dialog").close();await refreshRecords();renderAll();showToast("Association removed")});
   const viewEntity=e.target.closest("[data-view-entity]");if(viewEntity){openEntityDetail(viewEntity.dataset.entityType,viewEntity.dataset.entityId);return}
-  const editEntityBtn=e.target.closest("[data-edit-entity]");if(editEntityBtn)editEntity(editEntityBtn.dataset.entityType,editEntityBtn.dataset.entityId).then(async()=>{await refreshRecords();renderAll();openEntityDetail(editEntityBtn.dataset.entityType,editEntityBtn.dataset.entityId);showToast("Record updated")});
+  const editEntityBtn=e.target.closest("[data-edit-entity]");if(editEntityBtn)editEntity(editEntityBtn.dataset.entityType,editEntityBtn.dataset.entityId,editEntityBtn.dataset.scopeType,editEntityBtn.dataset.scopeId).then(async(result)=>{if(!result)return;await refreshRecords();renderAll();if(result==="association")openAssociationDetail(editEntityBtn.dataset.scopeType,editEntityBtn.dataset.scopeId);else openEntityDetail(editEntityBtn.dataset.entityType,editEntityBtn.dataset.entityId);showToast("Record updated")});
   const removeEntity=e.target.closest("[data-remove-entity-association]");if(removeEntity)removeEntityAssociation(removeEntity.dataset.scopeType,removeEntity.dataset.scopeId,removeEntity.dataset.entityType,removeEntity.dataset.entityId).then(async()=>{await refreshRecords();renderAll();openAssociationDetail(removeEntity.dataset.scopeType,removeEntity.dataset.scopeId);showToast("Association removed")});
   const openAssoc=e.target.closest("[data-open-association]");if(openAssoc&&!e.target.closest("button"))openAssociationDetail(openAssoc.dataset.associationType,openAssoc.dataset.associationId);
   const tableSort=e.target.closest("[data-admin-sort]");if(tableSort){const type=tableSort.dataset.adminSort,key=tableSort.dataset.sortKey,state=adminTableState(type);adminTableControls[type]={...state,sort:key,dir:state.sort===key&&state.dir==="asc"?"desc":"asc"};renderAdmin();return}
@@ -1470,14 +1529,12 @@ document.addEventListener("submit",async e=>{
   }
   if(e.target.id==="link-form"){
     e.preventDefault();
-    const type=document.querySelector("#link-type").value,recordId=document.querySelector("#link-record-id").value.trim(),remoteResult=isMasquerading()?null:await ClubhouseDB.requestRecordLink(type,recordId);
-    if(remoteResult){
-      document.querySelector("#link-dialog").close();await refreshRecords();renderAll();showToast(remoteResult==="already_linked"?"Already linked":"Link request submitted");return;
-    }
-    const record=recordsForType(type).find(r=>r.id===recordId);
+    const type=document.querySelector("#link-type").value,recordId=document.querySelector("#link-record-id").value.trim(),requestedRole=document.querySelector("#link-role").value||"member",meta=recordMeta(type);
+    const record=recordsForType(type).find(r=>r.id===recordId)||await ClubhouseDB.get(meta.store,recordId);
     if(!record){alert("No record found with that ID.");return}
     if(assocFor(currentUser.id,type,recordId)){alert("This account is already linked to that record.");return}
-    await ClubhouseDB.put("accessRequests",{id:ClubhouseDB.id("request"),userId:currentUser.id,recordType:type,recordId,status:"pending",created:new Date().toISOString()});
+    const existing=accessRequests.find(r=>r.userId===currentUser.id&&r.recordType===type&&r.recordId===recordId&&r.status==="pending");
+    await ClubhouseDB.put("accessRequests",{id:existing?.id||ClubhouseDB.id("request"),userId:currentUser.id,requestedRole,requestedBy:currentUser.id,recordType:type,recordId,status:"pending",created:existing?.created||new Date().toISOString()});
     document.querySelector("#link-dialog").close();await refreshRecords();renderAll();showToast("Link request submitted");
   }
   if(e.target.id==="invite-form"){
