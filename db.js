@@ -231,6 +231,8 @@ const ClubhouseDB = (() => {
   async function signUp(email,password,name){return sb.auth.signUp({email,password,options:{data:{name}}})}
   async function signOut(){return sb?.auth.signOut()}
   async function updateAuth(changes){return sb?.auth.updateUser(changes)}
+  async function resetPassword(email){return sb?.auth.resetPasswordForEmail(email,{redirectTo:`${location.origin}${location.pathname}?mode=reset-password`})}
+  function onAuthStateChange(callback){return sb?.auth.onAuthStateChange(callback)}
   async function currentAuthUser(){return (await sb?.auth.getUser())?.data?.user||null}
   async function authSession(){return (await sb?.auth.getSession())?.data?.session||null}
   async function hasSetup(){return Boolean(await get("meta","setup"))}
@@ -311,5 +313,5 @@ const ClubhouseDB = (() => {
     return user;
   }
   async function createSetup(){await seedInitialSuperUser()}
-  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations,accessRequestAdminDetails,appContext};
+  return {open,all,get,put,remove,id,hashPin,verifyPin,signIn,signUp,signOut,updateAuth,resetPassword,onAuthStateChange,currentAuthUser,authSession,ensureAuthProfile,hasSetup,seedInitialSuperUser,createSetup,createRecordWithAdminAssociation,requestRecordLink,inviteOrLinkUserToRecord,acceptPendingInvitations,decideRecordLinkRequest,normalizeCurrentUserAssociations,accessRequestAdminDetails,appContext};
 })();

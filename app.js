@@ -959,6 +959,23 @@ async function selectPlayer(id){
 function showAuth(){document.querySelector("#auth-screen").classList.add("show")}
 function hideAuth(){document.querySelector("#auth-screen").classList.remove("show")}
 async function signOutUser(){await ClubhouseDB.signOut();localStorage.removeItem(ACTIVE_USER_KEY);localStorage.removeItem(EFFECTIVE_USER_KEY);localStorage.removeItem(REMEMBER_LOGIN_KEY);localStorage.removeItem(MASQUERADE_SESSION_KEY);actualUser=null;currentUser=null;showAuth();loginScreen()}
+function isPasswordResetRoute(){
+  const query=new URLSearchParams(location.search),hash=new URLSearchParams(location.hash.replace(/^#/,""));
+  return query.get("mode")==="reset-password"||hash.get("type")==="recovery"||hash.get("error_code");
+}
+function passwordResetRouteMessage(){
+  const hash=new URLSearchParams(location.hash.replace(/^#/,""));
+  return hash.get("error_description")||"";
+}
+function cleanPasswordResetUrl(){if(history.replaceState)history.replaceState(null,"",`${location.origin}${location.pathname}`)}
+function passwordResetRequestScreen(message="",email=""){
+  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Password help</p><h1>Reset Password</h1>${message?`<p class="auth-error">${esc(message)}</p>`:""}<form id="password-reset-request-form" class="form-stack"><label>Email<input id="password-reset-email" type="email" autocomplete="email" value="${esc(email)}" required></label><button class="primary-button">Send reset email</button><button class="text-button" type="button" id="back-to-login">Back to login</button></form>`;
+  document.querySelector("#back-to-login").onclick=()=>loginScreen();
+}
+function passwordResetUpdateScreen(message=""){
+  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Password recovery</p><h1>Choose New Password</h1>${message?`<p class="auth-error">${esc(message)}</p>`:""}<form id="password-reset-update-form" class="form-stack"><label>New password<input id="password-reset-new" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm password<input id="password-reset-confirm" type="password" minlength="8" autocomplete="new-password" required></label><button class="primary-button">Update password</button><button class="text-button" type="button" id="back-to-login">Back to login</button></form>`;
+  document.querySelector("#back-to-login").onclick=async()=>{await ClubhouseDB.signOut();cleanPasswordResetUrl();loginScreen()};
+}
 function setupScreen(){
   document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">First-time setup</p><h1>Create your local clubhouse</h1><p>This device will store profiles, schedules, and training records. Existing training data will be copied into the first player.</p><form id="setup-form" class="form-stack"><label>Super User name<input id="setup-owner" required></label><label>Super User PIN<input id="setup-pin" type="password" inputmode="numeric" minlength="4" required></label><label>Initial player name<input id="setup-player" required></label><button class="primary-button">Create clubhouse</button></form>`;
   document.querySelector("#setup-form").onsubmit=async e=>{e.preventDefault();await ClubhouseDB.createSetup(document.querySelector("#setup-owner").value.trim(),document.querySelector("#setup-pin").value,document.querySelector("#setup-player").value.trim(),state);await refreshRecords();currentUser=users.find(u=>isSuperUser(u));await recordLogin(currentUser);localStorage.setItem(ACTIVE_USER_KEY,currentUser.id);await selectPlayer(players[0].id);hideAuth()};
@@ -983,6 +1000,8 @@ function roleHome(){
 async function boot(){
   await ClubhouseDB.open();
   showAuth();
+  ClubhouseDB.onAuthStateChange?.((event)=>{if(event==="PASSWORD_RECOVERY"){showAuth();passwordResetUpdateScreen()}});
+  if(isPasswordResetRoute()){await ClubhouseDB.authSession();passwordResetUpdateScreen(passwordResetRouteMessage());return}
   if(!isMasqueradeFrame()){localStorage.removeItem(EFFECTIVE_USER_KEY);localStorage.removeItem(MASQUERADE_SESSION_KEY)}
   const authUser=await ClubhouseDB.currentAuthUser();
   if(authUser&&localStorage.getItem(REMEMBER_LOGIN_KEY)!=="true"&&!(isMasqueradeFrame()&&localStorage.getItem(MASQUERADE_SESSION_KEY)==="true")){await ClubhouseDB.signOut();loginScreen();return}
@@ -1005,8 +1024,9 @@ async function disableOfflineCache(){
   }
 }
 function loginScreen(message=""){
-  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Supabase login</p><h1>Clubhouse Login</h1>${message?`<p class="auth-error">${message}</p>`:""}<form id="login-form" class="form-stack"><label>Email<input id="login-username" type="email" autocomplete="email" required></label><label>Password<input id="login-pin" type="password" autocomplete="current-password" required></label><label class="check-label"><input id="login-remember" type="checkbox"><span>Remember me on this device</span></label><button class="primary-button">Enter clubhouse</button><button class="text-button" type="button" id="open-signup">Sign Up</button></form>`;
+  document.querySelector("#auth-card").innerHTML=`<p class="eyebrow">Supabase login</p><h1>Clubhouse Login</h1>${message?`<p class="auth-error">${esc(message)}</p>`:""}<form id="login-form" class="form-stack"><label>Email<input id="login-username" type="email" autocomplete="email" required></label><label>Password<input id="login-pin" type="password" autocomplete="current-password" required></label><label class="check-label"><input id="login-remember" type="checkbox"><span>Remember me on this device</span></label><button class="primary-button">Enter clubhouse</button><button class="text-button" type="button" id="open-signup">Sign Up</button><button class="text-button" type="button" id="forgot-password">Forgot password?</button></form>`;
   document.querySelector("#open-signup").onclick=()=>openSignupDialog();
+  document.querySelector("#forgot-password").onclick=()=>passwordResetRequestScreen("",document.querySelector("#login-username")?.value.trim()||"");
   document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();try{const email=document.querySelector("#login-username").value.trim(),password=document.querySelector("#login-pin").value,remember=document.querySelector("#login-remember").checked,{data,error}=await ClubhouseDB.signIn(email,password);if(error){loginScreen(error.message);return}localStorage.setItem(REMEMBER_LOGIN_KEY,remember?"true":"false");const profile=await ClubhouseDB.ensureAuthProfile(data.user);currentUser=profile;await refreshRecords();actualUser=users.find(u=>u.id===profile.id)||profile;currentUser=actualUser;await recordLogin(actualUser);localStorage.setItem(ACTIVE_USER_KEY,actualUser.id);localStorage.removeItem(EFFECTIVE_USER_KEY);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome()}catch(err){console.error(err);loginScreen(err.message||"Login failed. Please try again.")}};
 }
 function openSignupDialog(){
@@ -1351,6 +1371,26 @@ document.addEventListener("input",e=>{
   }
 });
 document.addEventListener("submit",async e=>{
+  if(e.target.id==="password-reset-request-form"){
+    e.preventDefault();
+    const email=document.querySelector("#password-reset-email").value.trim();
+    const {error}=await ClubhouseDB.resetPassword(email)||{};
+    if(error){passwordResetRequestScreen(error.message,email);return}
+    passwordResetRequestScreen("If that email has an account, a reset link is on the way.",email);
+    return;
+  }
+  if(e.target.id==="password-reset-update-form"){
+    e.preventDefault();
+    const password=document.querySelector("#password-reset-new").value,confirmPassword=document.querySelector("#password-reset-confirm").value;
+    if(password!==confirmPassword){passwordResetUpdateScreen("Passwords do not match.");return}
+    const {error}=await ClubhouseDB.updateAuth({password})||{};
+    if(error){passwordResetUpdateScreen(error.message||"Unable to update password.");return}
+    await ClubhouseDB.signOut();
+    localStorage.removeItem(REMEMBER_LOGIN_KEY);
+    cleanPasswordResetUrl();
+    loginScreen("Password updated. Please log in.");
+    return;
+  }
   if(e.target.id==="profile-info-form"){
     e.preventDefault();
     const name=document.querySelector("#profile-edit-name").value.trim(),email=document.querySelector("#profile-edit-email").value.trim(),password=document.querySelector("#profile-edit-password").value;
