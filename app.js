@@ -10,6 +10,7 @@ const ROLE_ORDER = ["Player", "Parent", "Coach", "Director", "Super User"];
 const ROLE_SCOPE = {"Super User":"All access",Director:"Organization",Coach:"Team",Parent:"Household",Player:"Player"};
 const SPECIALIZATIONS = ["All","pitching","hitting","infielding","outfielding","catching"];
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const isMasqueradeFrame = () => window.self !== window.top;
 
 const D = (id, category, name, dose, purpose, cue, equipment, options = {}) => ({
   id, category, name, dose, purpose, cue, equipment,
@@ -954,15 +955,16 @@ function roleHome(){
 async function boot(){
   await ClubhouseDB.open();
   showAuth();
+  if(!isMasqueradeFrame()){localStorage.removeItem(EFFECTIVE_USER_KEY);localStorage.removeItem(MASQUERADE_SESSION_KEY)}
   const authUser=await ClubhouseDB.currentAuthUser();
-  if(authUser&&localStorage.getItem(REMEMBER_LOGIN_KEY)!=="true"&&localStorage.getItem(MASQUERADE_SESSION_KEY)!=="true"){await ClubhouseDB.signOut();loginScreen();return}
+  if(authUser&&localStorage.getItem(REMEMBER_LOGIN_KEY)!=="true"&&!(isMasqueradeFrame()&&localStorage.getItem(MASQUERADE_SESSION_KEY)==="true")){await ClubhouseDB.signOut();loginScreen();return}
   if(!authUser){showAuth();loginScreen();return}
   currentUser=await ClubhouseDB.ensureAuthProfile(authUser);
   if(isSuperUser(currentUser))await ClubhouseDB.seedInitialSuperUser();
   await refreshRecords();
   const saved=users.find(u=>u.id===currentUser?.id);
   if(!saved){showAuth();loginScreen();return}
-  actualUser=saved;currentUser=users.find(u=>u.id===localStorage.getItem(EFFECTIVE_USER_KEY))||saved;localStorage.setItem(ACTIVE_USER_KEY,saved.id);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
+  actualUser=saved;currentUser=(isMasqueradeFrame()?users.find(u=>u.id===localStorage.getItem(EFFECTIVE_USER_KEY)):null)||saved;localStorage.setItem(ACTIVE_USER_KEY,saved.id);await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));hideAuth();roleHome();
 }
 async function disableOfflineCache(){
   if("serviceWorker"in navigator){
