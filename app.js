@@ -465,6 +465,52 @@ function superUserSecuritySection(){return `<article class="panel"><div class="s
 function appSettingsSection(){const enabled=("Notification"in window)&&Notification.permission==="granted";return `<article class="panel app-settings-panel"><div class="section-heading"><div><p class="eyebrow">Device features</p><h2>App Settings</h2></div></div><div class="settings-row"><div><strong>Device notifications</strong><small>Best-effort alerts on this device.</small></div><button class="toggle-button" id="enable-notifications" type="button" aria-pressed="${enabled}"><span></span>${enabled?"Enabled":"Enable"}</button></div><button class="secondary-button wide" id="install-app" type="button">${installGuidance()}</button><button class="text-button wide" id="sign-out" type="button">Sign out</button></article>`}
 function recordActions(record,type){const admin=isRecordAdmin(type,record.id),editable=canEditRecord(type,record),encoded=`data-record-type="${type}" data-record-id="${esc(record.id)}"`;if(admin)return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record ${encoded}>Edit</button><button class="icon-action" title="Invite" data-invite-record ${encoded}>Invite</button><button class="icon-action danger" title="Delete" data-delete-record ${encoded}>Delete</button></div>`;if(editable)return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record ${encoded}>Edit</button><button class="icon-action" title="View" data-view-record ${encoded}>View</button></div>`;return `<div class="row-actions"><button class="icon-action" title="View" data-view-record ${encoded}>View</button></div>`}
 function recordDetailText(record,type){const actionType=record.__recordType||type;return actionType==="coach"||actionType==="director"||actionType==="parent"||actionType==="unassociated"?rolesFor(record).join(", ")||record.status||"Individual":record.season||record.status||record.recordType||""}
+const DATABASE_LOOKUP_TYPES=[
+  {type:"all",label:"All entities"},
+  {type:"organization",label:"Organizations"},
+  {type:"team",label:"Teams"},
+  {type:"household",label:"Households"},
+  {type:"user",label:"Users"},
+  {type:"director",label:"Directors"},
+  {type:"coach",label:"Coaches"},
+  {type:"parent",label:"Parents"},
+  {type:"player",label:"Players"},
+  {type:"superUser",label:"Super Users"},
+  {type:"unassociated",label:"Unassociated"}
+];
+function databaseLookupItems(){
+  const userItems=users.map(u=>({type:"user",name:recordName(u),email:u.username||"",id:u.id,details:rolesFor(u).join(", ")||u.status||"User",record:u}));
+  const roleItems=users.flatMap(u=>{
+    const roles=rolesFor(u),items=[];
+    if(roles.includes("Director"))items.push({type:"director",name:recordName(u),email:u.username||"",id:u.id,details:"Director",record:u});
+    if(roles.includes("Coach"))items.push({type:"coach",name:recordName(u),email:u.username||"",id:u.id,details:"Coach",record:u});
+    if(roles.includes("Parent"))items.push({type:"parent",name:recordName(u),email:u.username||"",id:u.id,details:"Parent",record:u});
+    if(roles.includes("Super User"))items.push({type:"superUser",name:recordName(u),email:u.username||"",id:u.id,details:"Super User",record:u});
+    if(!roles.length||u.status==="pending_association"||u.recordType==="unassociated")items.push({type:"unassociated",name:recordName(u),email:u.username||"",id:u.id,details:u.status||"Unassociated",record:u});
+    return items;
+  });
+  const playerItems=players.map(p=>{const u=userById(p.userId);return {type:"player",name:recordName(p),email:u?.username||"",id:p.id,details:u?`Login: ${recordName(u)}`:"Player",record:p}});
+  const orgItems=organizations.map(o=>({type:"organization",name:recordName(o),email:"",id:o.id,details:"Organization",record:o}));
+  const teamItems=teams.map(t=>({type:"team",name:recordName(t),email:"",id:t.id,details:organizationsById.get(t.organizationId)?.name||"Team",record:t}));
+  const householdItems=households.map(h=>({type:"household",name:recordName(h),email:userById(h.ownerUserId)?.username||"",id:h.id,details:"Household",record:h}));
+  return [...orgItems,...teamItems,...householdItems,...userItems,...roleItems,...playerItems];
+}
+async function copyLookupId(text){
+  try{
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(text);
+    else prompt("Copy this ID:",text);
+    showToast("ID copied");
+  }catch(err){
+    prompt("Copy this ID:",text);
+  }
+}
+function renderDatabaseLookup(){
+  const type=document.querySelector("#database-lookup-type")?.value||"all",q=(document.querySelector("#database-lookup-search")?.value||"").trim().toLowerCase();
+  const typeSelect=document.querySelector("#database-lookup-type");
+  if(typeSelect&&!typeSelect.options.length)typeSelect.innerHTML=DATABASE_LOOKUP_TYPES.map(t=>`<option value="${t.type}">${t.label}</option>`).join("");
+  const items=databaseLookupItems().filter(item=>(type==="all"||item.type===type)&&(!q||[item.name,item.email,item.id,item.details,item.type].join(" ").toLowerCase().includes(q))).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"})).slice(0,80);
+  document.querySelector("#database-lookup-results").innerHTML=items.length?items.map(item=>`<button class="database-lookup-row" type="button" data-copy-text="${esc(item.id)}" title="Copy ID"><strong>${esc(item.name)}</strong><small>${esc(item.type)}${item.details?` / ${esc(item.details)}`:""}</small><small>${esc(item.email||"No email")}</small><code>${esc(item.id)}</code></button>`).join(""):`<div class="empty-state compact">No matching entities.</div>`;
+}
 function adminTableState(type){return adminTableControls[type]||{query:"",filter:"all",sort:"name",dir:"asc"}}
 function filteredRecordItems(type,items){
   const state=adminTableState(type),q=state.query.trim().toLowerCase();
@@ -1063,6 +1109,7 @@ async function startMasquerade(userId){
   localStorage.setItem(MASQUERADE_SESSION_KEY,"true");
   document.querySelector("#masquerade-shell-title").textContent=`Masquerading as ${target.name}`;
   document.querySelector("#masquerade-frame").src=`${location.pathname}${location.search || ""}`;
+  document.querySelector("#database-lookup-panel").hidden=true;
   document.querySelector("#masquerade-shell-dialog").showModal();
 }
 async function exitMasquerade(){
@@ -1070,6 +1117,7 @@ async function exitMasquerade(){
   localStorage.removeItem(EFFECTIVE_USER_KEY);
   localStorage.removeItem(MASQUERADE_SESSION_KEY);
   document.querySelector("#masquerade-frame").src="about:blank";
+  document.querySelector("#database-lookup-panel").hidden=true;
   document.querySelector("#masquerade-shell-dialog").close();
   currentUser=actualUser;await selectPlayer(localStorage.getItem(ACTIVE_PLAYER_KEY));renderAll();
 }
@@ -1295,6 +1343,9 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-close-signup]"))document.querySelector("#signup-dialog").close();
   if(e.target.closest("#banner-exit-masquerade"))exitMasquerade();
   if(e.target.closest("#close-masquerade-shell"))exitMasquerade();
+  if(e.target.closest("#database-lookup-toggle")){const panel=document.querySelector("#database-lookup-panel");panel.hidden=!panel.hidden;if(!panel.hidden){renderDatabaseLookup();document.querySelector("#database-lookup-search").focus()}return}
+  if(e.target.closest("#database-lookup-close")){document.querySelector("#database-lookup-panel").hidden=true;return}
+  const copyLookup=e.target.closest("[data-copy-text]");if(copyLookup){copyLookupId(copyLookup.dataset.copyText);return}
   const deleteEvent=e.target.closest("[data-delete-event]");if(deleteEvent&&confirm("Delete this event and all recurring occurrences?"))ClubhouseDB.remove("events",deleteEvent.dataset.deleteEvent).then(async()=>{await refreshRecords();renderAll()});
   const conflict=e.target.closest("[data-conflict-action]");if(conflict){ClubhouseDB.put("decisions",{id:ClubhouseDB.id("decision"),playerId:currentPlayer.id,eventId:conflict.dataset.conflictEvent,date:conflict.dataset.conflictDate,action:conflict.dataset.conflictAction,created:new Date().toISOString()}).then(async()=>{await refreshRecords();renderAll()});showToast(`Conflict marked: ${conflict.dataset.conflictAction}`)}
   const pain=e.target.closest("[data-pain-decision]");if(pain){const item=alerts.find(a=>a.id===pain.dataset.alertId);item.status=pain.dataset.painDecision==="allow"?"allowed":"removed";item.read=true;if(item.status==="removed"){state.throwingRemovedDate=todayISO();saveState()}ClubhouseDB.put("alerts",item);ClubhouseDB.put("decisions",{id:ClubhouseDB.id("decision"),alertId:item.id,action:item.status,userId:currentUser.id,created:new Date().toISOString()});renderAll()}
@@ -1351,6 +1402,7 @@ document.addEventListener("change",e=>{
     adminTableControls[type]={...state,filter:e.target.value};
     renderAdmin();
   }
+  if(e.target.id==="database-lookup-type")renderDatabaseLookup();
 });
 document.addEventListener("input",e=>{
   if(e.target.id==="individual-search"){
@@ -1369,6 +1421,7 @@ document.addEventListener("input",e=>{
     search?.focus();
     search?.setSelectionRange(caret,caret);
   }
+  if(e.target.id==="database-lookup-search")renderDatabaseLookup();
 });
 document.addEventListener("submit",async e=>{
   if(e.target.id==="password-reset-request-form"){

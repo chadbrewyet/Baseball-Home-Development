@@ -287,6 +287,12 @@
   </dialog>
   <dialog id="masquerade-shell-dialog" class="masquerade-dialog">
     <div class="masquerade-shell-heading"><strong id="masquerade-shell-title">Masquerade</strong><button class="secondary-button" type="button" id="close-masquerade-shell">Exit masquerade</button></div>
+    <button class="database-lookup-button" type="button" id="database-lookup-toggle">Database Lookup</button>
+    <aside class="database-lookup-panel" id="database-lookup-panel" hidden>
+      <div class="database-lookup-heading"><div><p class="eyebrow">Super User</p><h2>Database Lookup</h2></div><button class="icon-button" type="button" id="database-lookup-close">x</button></div>
+      <div class="database-lookup-controls"><select id="database-lookup-type"></select><input id="database-lookup-search" type="search" placeholder="Search name, email, or ID"></div>
+      <div id="database-lookup-results" class="database-lookup-results"></div>
+    </aside>
     <iframe id="masquerade-frame" title="Masquerade session"></iframe>
   </dialog>
   <dialog id="signup-dialog">

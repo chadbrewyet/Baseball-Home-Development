@@ -240,9 +240,21 @@ textarea { resize: vertical; }
 .toggle-button[aria-pressed="true"] { background: #eaf4fb; color: var(--green-dark); }
 .toggle-button[aria-pressed="true"] span { background: var(--green); }
 .toggle-button[aria-pressed="true"] span::after { left: 14px; }
-.masquerade-dialog { width: 90vw; height: 90vh; max-width: none; max-height: none; border-radius: 14px; overflow: hidden; overscroll-behavior: contain; }
+.masquerade-dialog { width: 90vw; height: 90vh; max-width: none; max-height: none; border-radius: 14px; overflow: visible; overscroll-behavior: contain; }
 .masquerade-shell-heading { height: 58px; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--card); }
 .masquerade-dialog iframe { width: 100%; height: calc(100% - 58px); border: 0; background: var(--paper); }
+.database-lookup-button { position: fixed; right: 24px; top: 24px; z-index: 4; border: 1px solid var(--line); border-radius: 6px; background: var(--lime); color: #0b1c14; padding: 10px 12px; font-size: 11px; font-weight: 900; text-transform: uppercase; box-shadow: var(--shadow); }
+.database-lookup-panel { position: fixed; right: 24px; top: 72px; z-index: 5; width: min(430px, calc(100vw - 48px)); max-height: min(620px, calc(100vh - 100px)); overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: var(--shadow); }
+.database-lookup-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }
+.database-lookup-heading h2 { margin: 3px 0 0; font: 600 20px Oswald; text-transform: uppercase; }
+.database-lookup-controls { display: grid; grid-template-columns: 150px 1fr; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+.database-lookup-controls input, .database-lookup-controls select { min-height: 38px; }
+.database-lookup-results { max-height: 430px; overflow: auto; padding: 8px; display: grid; gap: 6px; }
+.database-lookup-row { display: grid; gap: 3px; width: 100%; border: 1px solid var(--line); border-radius: 7px; background: #f7f9fb; color: var(--ink); text-align: left; padding: 10px; }
+.database-lookup-row:hover { background: #eaf4fb; border-color: #b9d4e8; }
+.database-lookup-row strong, .database-lookup-row small, .database-lookup-row code { display: block; }
+.database-lookup-row small { color: var(--muted); font-size: 10px; }
+.database-lookup-row code { font-size: 11px; white-space: normal; word-break: break-all; }
 .manage-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .manage-row strong, .manage-row small { display: block; }
 .manage-row small { color: var(--muted); font-size: 9px; margin-top: 3px; }
@@ -306,6 +318,9 @@ dialog form { padding: 25px; display: grid; gap: 17px; }
   .agenda-item { grid-template-columns: 1fr; gap: 7px; }
   .directory-filters { grid-template-columns: 1fr; }
   .table-controls { grid-template-columns: 1fr; }
+  .database-lookup-button { right: 12px; top: 12px; }
+  .database-lookup-panel { right: 12px; top: 58px; width: calc(100vw - 24px); }
+  .database-lookup-controls { grid-template-columns: 1fr; }
   dialog, .wide-dialog { width: 100%; max-width: none; height: 100%; max-height: none; border-radius: 0; }
   dialog form { min-height: 100%; align-content: start; overflow-y: auto; }
   .bottom-nav { display: grid; position: fixed; inset: auto 0 0; z-index: 30; grid-template-columns: repeat(5, 1fr); background: var(--green-dark); padding: 6px env(safe-area-inset-right) calc(6px + env(safe-area-inset-bottom)) env(safe-area-inset-left); }
