@@ -809,11 +809,12 @@ function openVariationDialog(blueprintId,variationId=""){
 function selectedVariationSession(){const b=workoutFor(document.querySelector("#variation-blueprint-id").value);return {...b,name:document.querySelector("#variation-name").value,drillIds:[...document.querySelectorAll("[data-variation-slot]")].map(s=>s.value)}}
 function updateVariationWarnings(){const box=document.querySelector("#variation-warnings"),session=selectedVariationSession(),issues=sessionIssues(session);box.innerHTML=issues.length?`<div class="builder-warnings">${issues.map(i=>`<p class="${i.type}">${i.text}</p>`).join("")}</div>`:`<div class="builder-ready">Ready to save. All selected drills are approved and equipment-ready.</div>`}
 async function refreshRecords(){
-  if(!migrationChecked){
+  const masqueradeDataMode=isMasqueradeFrame()&&localStorage.getItem(MASQUERADE_SESSION_KEY)==="true";
+  if(!migrationChecked&&!masqueradeDataMode){
     try{await ClubhouseDB.normalizeCurrentUserAssociations()}catch(err){console.warn("Association normalization skipped.",err)}
     migrationChecked=true;
   }
-  const context=await ClubhouseDB.appContext?.();
+  const context=masqueradeDataMode?null:await ClubhouseDB.appContext?.();
   if(context){
     ({users,players,teams,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations,accessRequestDetails}=context);
     accessRecords=context.userPlayerAccess||[];
@@ -822,8 +823,10 @@ async function refreshRecords(){
   }
   [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations"].map(ClubhouseDB.all));
   accessRequestDetails=await ClubhouseDB.accessRequestAdminDetails();
-  const oldMemberships=await ClubhouseDB.all("teamMemberships"),oldTeamRoles=await ClubhouseDB.all("userTeamRoles");
-  await migrateAssociations(oldMemberships,oldTeamRoles);
+  if(!masqueradeDataMode){
+    const oldMemberships=await ClubhouseDB.all("teamMemberships"),oldTeamRoles=await ClubhouseDB.all("userTeamRoles");
+    await migrateAssociations(oldMemberships,oldTeamRoles);
+  }
   normalizeLoadedRecords();
 }
 async function migrateAssociations(oldMemberships=[],oldTeamRoles=[]){
@@ -1000,12 +1003,12 @@ async function approveRequest(id){
   if(req.requestedRole==="Player"){
     const playerId=ClubhouseDB.id("player");await ClubhouseDB.put("players",{id:playerId,name:user.name,userId:user.id,active:true});await ClubhouseDB.put("playerData",{id:playerId,data:structuredClone(defaultState)});if(approverHeadTeam&&!isDirector())await ClubhouseDB.put("playerTeamMemberships",{id:ClubhouseDB.id("membership"),playerId,teamId:approverHeadTeam,active:true,priority:1});
   }
-  req.status="approved";req.decidedBy=actualUser?.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
+  req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
   await refreshRecords();renderAll();showToast("Request approved");
 }
 async function denyRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!req)return;
-  req.status="denied";req.decidedBy=actualUser?.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
+  req.status="denied";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
   await refreshRecords();renderAll();showToast("Request denied");
 }
 async function startMasquerade(userId){
@@ -1117,19 +1120,19 @@ async function deleteRecord(type,recordId){
 }
 async function approveRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!req||!(isRecordAdmin(req.recordType,req.recordId)||req.userId===currentUser?.id))return;
-  if(await ClubhouseDB.decideRecordLinkRequest(id,true))return;
+  if(!isMasquerading()&&await ClubhouseDB.decideRecordLinkRequest(id,true))return;
   await grantRecordAccess(req.requestedUserId||req.userId,req.recordType,req.recordId,req.requestedRole||"member");
   req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function denyRecordRequest(id){
   const req=accessRequests.find(r=>r.id===id);if(!req||!(isRecordAdmin(req.recordType,req.recordId)||req.userId===currentUser?.id))return;
-  if(await ClubhouseDB.decideRecordLinkRequest(id,false))return;
+  if(!isMasquerading()&&await ClubhouseDB.decideRecordLinkRequest(id,false))return;
   req.status="denied";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function inviteToRecord(type,recordId,email,role="member"){
   const record=recordsForType(type).find(r=>r.id===recordId);
   if(!(isRecordAdmin(type,recordId)||canEditRecord(type,record))){alert("Only an authorized manager can invite users.");return}
-  const remoteResult=await ClubhouseDB.inviteOrLinkUserToRecord(type,recordId,email,role);
+  const remoteResult=isMasquerading()?null:await ClubhouseDB.inviteOrLinkUserToRecord(type,recordId,email,role);
   if(remoteResult)return remoteResult;
   const normalized=email.toLowerCase(),existing=users.find(u=>u.username?.toLowerCase()===normalized);
   if(existing){
@@ -1312,9 +1315,12 @@ document.addEventListener("submit",async e=>{
   if(e.target.id==="profile-info-form"){
     e.preventDefault();
     const name=document.querySelector("#profile-edit-name").value.trim(),email=document.querySelector("#profile-edit-email").value.trim(),password=document.querySelector("#profile-edit-password").value;
-    const authChanges={data:{name}};if(email&&email!==currentUser.username)authChanges.email=email;if(password)authChanges.password=password;
-    const {error}=await ClubhouseDB.updateAuth(authChanges)||{};
-    if(error){alert(error.message);return}
+    if(isMasquerading()&&(password||(email&&email!==currentUser.username))){alert("Email and password changes are disabled while masquerading.");return}
+    if(!isMasquerading()){
+      const authChanges={data:{name}};if(email&&email!==currentUser.username)authChanges.email=email;if(password)authChanges.password=password;
+      const {error}=await ClubhouseDB.updateAuth(authChanges)||{};
+      if(error){alert(error.message);return}
+    }
     currentUser.name=name;currentUser.username=email||currentUser.username;await ClubhouseDB.put("users",currentUser);await refreshRecords();actualUser=users.find(u=>u.id===actualUser?.id)||actualUser;currentUser=users.find(u=>u.id===currentUser?.id)||currentUser;renderAll();showToast("Profile updated");
   }
   if(e.target.id==="link-form"){
