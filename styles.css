@@ -202,6 +202,8 @@ textarea { resize: vertical; }
 .association-pane.active { display: block; }
 .directory-filters { display: grid; grid-template-columns: minmax(180px,1fr) 150px minmax(170px,220px); gap: 8px; margin-bottom: 10px; }
 .directory-filters input, .directory-filters select { min-height: 38px; }
+.table-controls { display: grid; grid-template-columns: minmax(180px,1fr) minmax(150px,220px); gap: 8px; margin-bottom: 10px; }
+.table-controls input, .table-controls select { min-height: 38px; }
 .association-list { display: grid; gap: 8px; }
 .association-row, .association-member { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 7px; padding: 12px; background: #f7f9fb; }
 .association-row.clickable { cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
@@ -223,6 +225,8 @@ textarea { resize: vertical; }
 .profile-table th, .profile-table td { padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .profile-table tr:hover { background: #eaf4fb; }
 .profile-table code { font-size: 11px; white-space: nowrap; }
+.table-sort { border: 0; background: transparent; color: inherit; padding: 0; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.table-sort.active { color: var(--ink); }
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .icon-action { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 5px; padding: 7px 9px; font-size: 10px; font-weight: 800; }
 .icon-action.danger { border-color: #d78532; color: #9a3412; }
@@ -301,6 +305,7 @@ dialog form { padding: 25px; display: grid; gap: 17px; }
   .feeling-choice svg { width: 32px; height: 32px; }
   .agenda-item { grid-template-columns: 1fr; gap: 7px; }
   .directory-filters { grid-template-columns: 1fr; }
+  .table-controls { grid-template-columns: 1fr; }
   dialog, .wide-dialog { width: 100%; max-width: none; height: 100%; max-height: none; border-radius: 0; }
   dialog form { min-height: 100%; align-content: start; overflow-y: auto; }
   .bottom-nav { display: grid; position: fixed; inset: auto 0 0; z-index: 30; grid-template-columns: repeat(5, 1fr); background: var(--green-dark); padding: 6px env(safe-area-inset-right) calc(6px + env(safe-area-inset-bottom)) env(safe-area-inset-left); }

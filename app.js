@@ -113,6 +113,7 @@ let accessRequestDetails=[];
 let usersById=new Map(),playersById=new Map(),teamsById=new Map(),organizationsById=new Map(),householdsById=new Map();
 let migrationChecked=false;
 let individualFilters={role:"all",team:"all",query:""};
+let adminTableControls={};
 let associationActiveTab="household";
 let deferredInstallPrompt=null;
 let libraryFilter = "All";
@@ -460,9 +461,33 @@ function requestVisible(r){
   return headCoachTeamIds().length>0&&["Coach","Parent","Player"].includes(r.requestedRole);
 }
 function profileInfoSection(){return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Account</p><h2>Personal Information</h2></div></div><form id="profile-info-form" class="form-stack"><label>Name<input id="profile-edit-name" value="${esc(currentUser.name||"")}" required></label><label>Email<input id="profile-edit-email" type="email" value="${esc(currentUser.username||"")}" autocomplete="email"></label><label>New password<input id="profile-edit-password" type="password" minlength="8" autocomplete="new-password" placeholder="Leave blank to keep current password"></label><button class="primary-button">Save personal information</button></form></article>`}
+function superUserSecuritySection(){return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Security</p><h2>Super User Password</h2></div></div><form id="super-password-form" class="form-stack"><label>New password<input id="super-password" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm password<input id="super-password-confirm" type="password" minlength="8" autocomplete="new-password" required></label><button class="primary-button">Reset password</button></form></article>`}
 function appSettingsSection(){const enabled=("Notification"in window)&&Notification.permission==="granted";return `<article class="panel app-settings-panel"><div class="section-heading"><div><p class="eyebrow">Device features</p><h2>App Settings</h2></div></div><div class="settings-row"><div><strong>Device notifications</strong><small>Best-effort alerts on this device.</small></div><button class="toggle-button" id="enable-notifications" type="button" aria-pressed="${enabled}"><span></span>${enabled?"Enabled":"Enable"}</button></div><button class="secondary-button wide" id="install-app" type="button">${installGuidance()}</button><button class="text-button wide" id="sign-out" type="button">Sign out</button></article>`}
 function recordActions(record,type){const admin=isRecordAdmin(type,record.id),editable=canEditRecord(type,record),encoded=`data-record-type="${type}" data-record-id="${esc(record.id)}"`;if(admin)return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record ${encoded}>Edit</button><button class="icon-action" title="Invite" data-invite-record ${encoded}>Invite</button><button class="icon-action danger" title="Delete" data-delete-record ${encoded}>Delete</button></div>`;if(editable)return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record ${encoded}>Edit</button><button class="icon-action" title="View" data-view-record ${encoded}>View</button></div>`;return `<div class="row-actions"><button class="icon-action" title="View" data-view-record ${encoded}>View</button></div>`}
-function recordTable(type,items,adminMode=false){const rows=items.map(r=>{const actionType=r.__recordType||type,details=actionType==="coach"||actionType==="director"||actionType==="parent"||actionType==="unassociated"?esc(rolesFor(r).join(", ")||r.status||"Individual"):esc(r.season||r.status||"");return `<tr><td><strong>${esc(recordName(r))}</strong></td><td><code>${esc(r.id)}</code></td><td>${details}</td><td>${adminMode?adminRecordActions(r,actionType):recordActions(r,actionType)}</td></tr>`}).join("");return `<div class="table-wrap"><table class="profile-table"><thead><tr><th>Name</th><th>ID</th><th>Details</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
+function recordDetailText(record,type){const actionType=record.__recordType||type;return actionType==="coach"||actionType==="director"||actionType==="parent"||actionType==="unassociated"?rolesFor(record).join(", ")||record.status||"Individual":record.season||record.status||record.recordType||""}
+function adminTableState(type){return adminTableControls[type]||{query:"",filter:"all",sort:"name",dir:"asc"}}
+function filteredRecordItems(type,items){
+  const state=adminTableState(type),q=state.query.trim().toLowerCase();
+  const filtered=items.filter(r=>{
+    const details=recordDetailText(r,type),haystack=[recordName(r),r.id,details,r.username,r.status,r.recordType].join(" ").toLowerCase();
+    return (!q||haystack.includes(q))&&(state.filter==="all"||details===state.filter);
+  });
+  const value=r=>state.sort==="id"?r.id:state.sort==="details"?recordDetailText(r,type):recordName(r);
+  return filtered.sort((a,b)=>String(value(a)||"").localeCompare(String(value(b)||""),undefined,{numeric:true,sensitivity:"base"})*(state.dir==="desc"?-1:1));
+}
+function recordTableControls(type,items){
+  const state=adminTableState(type),details=[...new Set(items.map(r=>recordDetailText(r,type)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  return `<div class="table-controls" data-table-controls="${esc(type)}"><input type="search" data-admin-table-search="${esc(type)}" placeholder="Search ${esc(recordPlural(type).toLowerCase())}" value="${esc(state.query)}"><select data-admin-table-filter="${esc(type)}"><option value="all">All details</option>${details.map(d=>`<option value="${esc(d)}" ${state.filter===d?"selected":""}>${esc(d)}</option>`).join("")}</select></div>`;
+}
+function sortButton(type,key,label){
+  const state=adminTableState(type),active=state.sort===key;
+  return `<button class="table-sort ${active?"active":""}" type="button" data-admin-sort="${esc(type)}" data-sort-key="${key}">${label}${active?` ${state.dir==="asc"?"A-Z":"Z-A"}`:""}</button>`;
+}
+function recordTable(type,items,adminMode=false){
+  const filtered=filteredRecordItems(type,items);
+  const rows=filtered.map(r=>{const actionType=r.__recordType||type,details=recordDetailText(r,type);return `<tr><td><strong>${esc(recordName(r))}</strong></td><td><code>${esc(r.id)}</code></td><td>${esc(details)}</td><td>${adminMode?adminRecordActions(r,actionType):recordActions(r,actionType)}</td></tr>`}).join("");
+  return `${recordTableControls(type,items)}<div class="table-wrap"><table class="profile-table"><thead><tr><th>${sortButton(type,"name","Name")}</th><th>${sortButton(type,"id","ID")}</th><th>${sortButton(type,"details","Details")}</th><th></th></tr></thead><tbody>${rows||`<tr><td colspan="4"><div class="empty-state compact">No matching records.</div></td></tr>`}</tbody></table></div>`;
+}
 function adminRecordActions(record,type){const canMasq=["coach","player","unassociated"].includes(type)||["Director","Parent","Player","Coach"].some(role=>rolesFor(record).includes(role));const canDelete=!(type==="superUser"&&record.id===actualUser?.id);return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record data-record-type="${type}" data-record-id="${esc(record.id)}">Edit</button>${type==="unassociated"?`<button class="icon-action" title="Make Super User" data-promote-super="${esc(record.id)}">Make Super</button>`:""}${canMasq&&!isSuperUser(record)?`<button class="icon-action" title="Masquerade" data-masquerade-user="${esc(record.userId||record.id)}">Masq</button>`:""}${canDelete?`<button class="icon-action danger" title="Delete" data-delete-record data-record-type="${type}" data-record-id="${esc(record.id)}">Delete</button>`:""}</div>`}
 function profileAssociationSection(meta){const items=visibleRecords(meta.type);if(!items.length)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Associated records</p><h2>${recordPlural(meta.type)}</h2></div></div>${recordTable(meta.type,items)}</article>`}
 function pendingRequestSection(always=false){const reqs=pendingRequestsForAdmin();if(!reqs.length&&!always)return "";return `<article class="panel"><div class="section-heading"><div><p class="eyebrow">Approvals</p><h2>Pending Requests</h2></div></div>${reqs.length?reqs.map(r=>{const d=requestDetail(r);return `<div class="manage-row"><div><strong>${esc(d.requesterName)}</strong><small>${esc(d.requesterEmail)}</small><small>Wants access to ${esc(d.recordType)}: ${esc(d.recordName)}</small><small>ID: ${esc(d.recordId)}</small></div><div><button data-approve-request="${r.id}">Approve</button><button data-deny-request="${r.id}">Deny</button></div></div>`}).join(""):`<div class="empty-state compact">No pending requests.</div>`}</article>`}
@@ -585,7 +610,7 @@ function associationsSection(){
   const active=ASSOCIATION_TABS.some(t=>t.key===associationActiveTab)?associationActiveTab:"household";
   return `<article class="panel associations-panel"><div class="section-heading"><div><p class="eyebrow">Scoped access</p><h2>Associations</h2></div></div><div class="association-tabs">${ASSOCIATION_TABS.map(tab=>`<button class="association-tab ${tab.key===active?"active":""}" type="button" data-association-tab="${tab.key}">${tab.label}</button>`).join("")}</div>${ASSOCIATION_TABS.map(tab=>`<div class="association-pane ${tab.key===active?"active":""}" data-association-pane="${tab.key}">${associationList(tab)}</div>`).join("")}</article>`;
 }
-function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${recordPlural(meta.type)}</h2></div></div>${recordTable(meta.type,adminRecordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${pendingRequestSection(true)}${associationsSection()}${sections}${appSettingsSection()}`}
+function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Global records</p><h2>${recordPlural(meta.type)}</h2></div></div>${recordTable(meta.type,adminRecordsForType(meta.type),true)}</article>`).join("");document.querySelector("#profile-stack").innerHTML=`<article class="panel"><div class="section-heading"><div><p class="eyebrow">Super User</p><h2>Admin</h2></div></div><p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p></article>${superUserSecuritySection()}${pendingRequestSection(true)}${associationsSection()}${sections}${appSettingsSection()}`}
 function renderAdmin(){
   if(!currentUser)return;
   document.querySelector("#profile-actions").innerHTML=isSuperUser()?"":`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button><button class="secondary-button" type="button" id="link-record-button">Link</button>`;
@@ -1270,6 +1295,7 @@ document.addEventListener("click",e=>{
   const editEntityBtn=e.target.closest("[data-edit-entity]");if(editEntityBtn)editEntity(editEntityBtn.dataset.entityType,editEntityBtn.dataset.entityId).then(async()=>{await refreshRecords();renderAll();openEntityDetail(editEntityBtn.dataset.entityType,editEntityBtn.dataset.entityId);showToast("Record updated")});
   const removeEntity=e.target.closest("[data-remove-entity-association]");if(removeEntity)removeEntityAssociation(removeEntity.dataset.scopeType,removeEntity.dataset.scopeId,removeEntity.dataset.entityType,removeEntity.dataset.entityId).then(async()=>{await refreshRecords();renderAll();openAssociationDetail(removeEntity.dataset.scopeType,removeEntity.dataset.scopeId);showToast("Association removed")});
   const openAssoc=e.target.closest("[data-open-association]");if(openAssoc&&!e.target.closest("button"))openAssociationDetail(openAssoc.dataset.associationType,openAssoc.dataset.associationId);
+  const tableSort=e.target.closest("[data-admin-sort]");if(tableSort){const type=tableSort.dataset.adminSort,key=tableSort.dataset.sortKey,state=adminTableState(type);adminTableControls[type]={...state,sort:key,dir:state.sort===key&&state.dir==="asc"?"desc":"asc"};renderAdmin();return}
   const addNew=e.target.closest("#add-new-button");if(addNew)openAddMenu(addNew);
   const linkButton=e.target.closest("#link-record-button");if(linkButton)openLinkMenu(linkButton);
   const createRecord=e.target.closest("[data-create-record]");if(createRecord){document.querySelector(".floating-menu")?.remove();openRecordCreate(createRecord.dataset.createRecord)}
@@ -1300,6 +1326,11 @@ document.addEventListener("change",e=>{
     individualFilters={...individualFilters,role:document.querySelector("#individual-role-filter")?.value||"all",team:document.querySelector("#individual-team-filter")?.value||"all"};
     renderAdmin();
   }
+  if(e.target.matches("[data-admin-table-filter]")){
+    const type=e.target.dataset.adminTableFilter,state=adminTableState(type);
+    adminTableControls[type]={...state,filter:e.target.value};
+    renderAdmin();
+  }
 });
 document.addEventListener("input",e=>{
   if(e.target.id==="individual-search"){
@@ -1307,6 +1338,14 @@ document.addEventListener("input",e=>{
     individualFilters={...individualFilters,query:e.target.value};
     renderAdmin();
     const search=document.querySelector("#individual-search");
+    search?.focus();
+    search?.setSelectionRange(caret,caret);
+  }
+  if(e.target.matches("[data-admin-table-search]")){
+    const type=e.target.dataset.adminTableSearch,caret=e.target.selectionStart??e.target.value.length,state=adminTableState(type);
+    adminTableControls[type]={...state,query:e.target.value};
+    renderAdmin();
+    const search=[...document.querySelectorAll("[data-admin-table-search]")].find(input=>input.dataset.adminTableSearch===type);
     search?.focus();
     search?.setSelectionRange(caret,caret);
   }
@@ -1322,6 +1361,16 @@ document.addEventListener("submit",async e=>{
       if(error){alert(error.message);return}
     }
     currentUser.name=name;currentUser.username=email||currentUser.username;await ClubhouseDB.put("users",currentUser);await refreshRecords();actualUser=users.find(u=>u.id===actualUser?.id)||actualUser;currentUser=users.find(u=>u.id===currentUser?.id)||currentUser;renderAll();showToast("Profile updated");
+  }
+  if(e.target.id==="super-password-form"){
+    e.preventDefault();
+    if(!canManageSecurity()){alert("Password changes are disabled while masquerading.");return}
+    const password=document.querySelector("#super-password").value,confirmPassword=document.querySelector("#super-password-confirm").value;
+    if(password!==confirmPassword){alert("Passwords do not match.");return}
+    const {error}=await ClubhouseDB.updateAuth({password})||{};
+    if(error){alert(error.message);return}
+    e.target.reset();
+    showToast("Password updated");
   }
   if(e.target.id==="link-form"){
     e.preventDefault();
