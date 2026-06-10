@@ -306,7 +306,9 @@ function canEditRecord(type,record,userId=currentUser?.id){
 }
 function visibleRecords(type,userId=currentUser?.id){if(isSuperUser(userById(userId)||currentUser))return recordsForType(type);const ids=userRecordAssociations(userId,type).map(a=>a.recordId);if(type==="organization")return organizations.filter(o=>organizationIdsForUser(userId).includes(o.id));if(type==="team")return teams.filter(t=>visibleTeamIds(userId).includes(t.id));if(type==="household")return households.filter(h=>householdIdsForUser(userId).includes(h.id));if(type==="player")return players.filter(p=>visiblePlayerIds(userId).includes(p.id));if(type==="parent")return users.filter(u=>visibleParentUserIds(userId).includes(u.id));if(type==="coach")return users.filter(u=>visibleCoachUserIds(userId).includes(u.id));if(type==="director")return users.filter(u=>ids.includes(u.id)||rolesFor(u).includes("Director"));return recordsForType(type).filter(r=>ids.includes(r.id)||r.id===userId)}
 function adminRecordsForType(type){return type==="player"?[...players,...recordsForType("unassociated").map(u=>({...u,__recordType:"unassociated"}))]:recordsForType(type)}
-function pendingRequestsForAdmin(){return accessRequests.filter(r=>r.status==="pending"&&(isRecordAdmin(r.recordType,r.recordId)||r.userId===currentUser?.id))}
+function isParentApprovalForCurrentUser(req){return req?.userId===currentUser?.id&&req.requestedUserId&&req.requestedUserId!==currentUser?.id}
+function canDecideRecordRequest(req){return Boolean(req&&req.status==="pending"&&(isRecordAdmin(req.recordType,req.recordId)||isParentApprovalForCurrentUser(req)))}
+function pendingRequestsForAdmin(){return accessRequests.filter(r=>canDecideRecordRequest(r))}
 function pendingApprovalCount(){return pendingRequestsForAdmin().length}
 function requestDetail(req){
   const detail=accessRequestDetails.find(d=>d.id===req.id)||{};
@@ -1212,13 +1214,13 @@ async function deleteRecord(type,recordId){
   for(const req of accessRequests.filter(r=>r.recordType===type&&r.recordId===recordId))await ClubhouseDB.remove("accessRequests",req.id);
 }
 async function approveRecordRequest(id){
-  const req=accessRequests.find(r=>r.id===id);if(!req||!(isRecordAdmin(req.recordType,req.recordId)||req.userId===currentUser?.id))return;
+  const req=accessRequests.find(r=>r.id===id);if(!canDecideRecordRequest(req))return;
   if(!isMasquerading()&&await ClubhouseDB.decideRecordLinkRequest(id,true))return;
   await grantRecordAccess(req.requestedUserId||req.userId,req.recordType,req.recordId,req.requestedRole||"member");
   req.status="approved";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
 async function denyRecordRequest(id){
-  const req=accessRequests.find(r=>r.id===id);if(!req||!(isRecordAdmin(req.recordType,req.recordId)||req.userId===currentUser?.id))return;
+  const req=accessRequests.find(r=>r.id===id);if(!canDecideRecordRequest(req))return;
   if(!isMasquerading()&&await ClubhouseDB.decideRecordLinkRequest(id,false))return;
   req.status="denied";req.decidedBy=currentUser.id;req.decidedAt=new Date().toISOString();await ClubhouseDB.put("accessRequests",req);
 }
