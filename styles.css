@@ -195,6 +195,13 @@ textarea { resize: vertical; }
 .refresh-button.refreshing .refresh-icon { animation: spin .45s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .profile-stack { display: grid; gap: 18px; }
+.profile-collapse { padding: 0; overflow: hidden; }
+.profile-collapse-summary { margin: 0; padding: 24px; cursor: pointer; list-style: none; align-items: center; }
+.profile-collapse-summary::-webkit-details-marker { display: none; }
+.profile-collapse-body { padding: 0 24px 24px; }
+.collapse-indicator { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 50%; display: inline-grid; place-items: center; flex: 0 0 auto; }
+.collapse-indicator::before { content: "+"; color: var(--green-dark); font-weight: 900; line-height: 1; }
+.profile-collapse[open] .collapse-indicator::before { content: "-"; }
 .association-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .association-tab { border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); padding: 10px 12px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .association-tab.active { color: var(--green-dark); border-bottom-color: var(--green); }
