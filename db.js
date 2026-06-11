@@ -1,9 +1,9 @@
 const ClubhouseDB = (() => {
   const DB_NAME = "clubhouse-baseball";
-  const VERSION = 3;
+  const VERSION = 4;
   const SUPABASE_URL = "https://oczqjazkqmbscffsdvzw.supabase.co";
   const SUPABASE_KEY = "sb_publishable_kyF5JbMqNhT0sqUK7KQtcw_XkMtBxQA";
-  const STORES = ["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","playerData","alerts","decisions","meta","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations"];
+  const STORES = ["users","players","teams","teamMemberships","userPlayerAccess","userTeamRoles","events","playerData","alerts","decisions","meta","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations","profileDetails","playerProfiles"];
   let db, sb;
 
   const hasRemote = () => Boolean(sb);

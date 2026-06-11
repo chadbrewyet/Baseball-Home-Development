@@ -108,7 +108,7 @@ const defaultState = {
 let state = loadState();
 let actualUser=null,currentUser=null,currentPlayer=null,users=[],players=[],teams=[],memberships=[],accessRecords=[],teamRoles=[],events=[],alerts=[],decisions=[];
 let organizations=[],households=[],organizationRoles=[],teamCoachRoles=[],householdMemberships=[],playerTeamMemberships=[],playerTags=[],accessRequests=[];
-let recordAssociations=[],invitations=[];
+let recordAssociations=[],invitations=[],profileDetails=[],playerProfiles=[];
 let accessRequestDetails=[];
 let usersById=new Map(),playersById=new Map(),teamsById=new Map(),organizationsById=new Map(),householdsById=new Map();
 let migrationChecked=false;
@@ -464,10 +464,78 @@ function requestVisible(r){
   if(isDirector())return true;
   return headCoachTeamIds().length>0&&["Coach","Parent","Player"].includes(r.requestedRole);
 }
+const LANGUAGE_OPTIONS=["English","Spanish","French","Japanese"];
+const POSITION_OPTIONS=["Pitcher","Catcher","First Base","Second Base","Third Base","Shortstop","Left Field","Center Field","Right Field","Utility","Designated Hitter"];
+const HAND_OPTIONS=["Right","Left","Switch"];
+const GENDER_OPTIONS=["","Female","Male","Non-binary","Prefer not to say"];
+const STATUS_OPTIONS=["Fully Active","Inactive","Injured","Cleared for Activity"];
+const EVALUATION_OPTIONS=["","Weekly","Biweekly","Monthly","Quarterly","Semiannual","Annual"];
+const PROFILE_FIELDS=[
+  ["firstName","First Name","text",true],["lastName","Last Name","text",true],["email","Email","email",true],["phone1","Phone 1"],["phone2","Phone 2"],["profilePicture","Profile Picture"],["dateOfBirth","Date of Birth","date"],["primaryLanguage","Primary Language","select",false,LANGUAGE_OPTIONS],["city","City"],["state","State"],["facebook","Facebook Address"],["xAddress","X Address"],["instagram","Instagram Address"],["tikTok","Tik Tok Address"],["youtube","YouTube Channel"]
+];
+const PLAYER_FIELDS=[
+  ["nickname","Nickname"],["gender","Gender","select",false,GENDER_OPTIONS],["school","School"],["graduationYear","Graduation Year (Class of)","number"],["primaryPosition","Primary Position","select",false,POSITION_OPTIONS],["otherPositions","Other Positions","multiselect",false,POSITION_OPTIONS],["bats","Bats","select",false,HAND_OPTIONS],["throws","Throws","select",false,HAND_OPTIONS],["height","Height"],["weight","Weight"],["playerParentNotes","Player/Parent Notes","textarea"],["gameChanger","Game Changer Link"],["hudl","Hudl Address"],["perfectGame","Perfect Game Profile"],["pbr","Prep Baseball / PBR"],["ncsa","NCSA Profile"],["sportsRecruits","SportsRecruits Profile"],["fieldLevel","FieldLevel Profile"],["baseballFactory","Baseball Factory Profile"],["trackman","Trackman Profile"],["rapsodo","Rapsodo Profile"],["hitTrax","HitTrax Profile"],["blastMotion","Blast Motion Profile"],["pocketRadar","Pocket Radar Profile"],["synergy","Synergy Profile"]
+];
+const ATHLETIC_FIELDS=[
+  ["currentStatus","Current Status","select",STATUS_OPTIONS],["currentRestrictions","Current Restrictions","textarea"],["primaryGoals","Primary Goals","textarea"],["otherGoals","Other Goals","textarea"],["shortTermGoals","Short-term Goals","textarea"],["evaluationFrequency","Evaluation Frequency","select",EVALUATION_OPTIONS],["nextEvaluationDate","Next Evaluation Date","date"],["strengths","Strengths","textarea"],["weaknesses","Weaknesses","textarea"],["motivationStyle","Motivation Style","textarea"],["gameIq","Game IQ"],["coachNotes","Coach's Notes","textarea"]
+];
+const METRIC_GROUPS=[
+  ["Measurements",["Height","Weight","60-yard dash","Home-to-first time","Vertical jump","Broad jump","Grip strength","Arm velocity","Position-specific metrics"]],
+  ["Hitting Metrics",["Exit velocity","Average exit velocity","Max distance","Launch angle","Bat speed","Hand speed","Attack angle","Contact rate"]],
+  ["Pitching Metrics",["Fastball velocity","Average velocity","Max velocity","Pitch types","Spin rate by pitch","Pitch movement","Strike percentage","Command rating"]],
+  ["Catching Metrics",["Pop time","Catcher velocity","Receiving rating","Blocking rating","Transfer time"]],
+  ["Fielding Metrics",["Infield velocity","Outfield velocity","Footwork rating","Arm accuracy","Range rating"]]
+];
+function detailForUser(userId){return profileDetails.find(d=>d.id===userId)||{id:userId}}
+function profileForPlayer(playerId){return playerProfiles.find(p=>p.id===playerId)||{id:playerId,metrics:{},athletic:{}}}
+function splitName(name=""){const parts=name.trim().split(/\s+/).filter(Boolean);return {firstName:parts[0]||"",lastName:parts.slice(1).join(" ")}}
+function ageFromDob(dob){if(!dob)return "";const birth=new Date(`${dob}T00:00:00`);if(Number.isNaN(birth.getTime()))return "";const now=new Date();let years=now.getFullYear()-birth.getFullYear(),months=now.getMonth()-birth.getMonth();if(now.getDate()<birth.getDate())months--;if(months<0){years--;months+=12}return years>=0?`${years} years, ${months} months`:""}
+function fieldValue(data,key,fallback=""){return data?.[key]??fallback}
+function inputField(prefix,[key,label,type="text",required=false,options=[]],data,fallback=""){
+  const value=fieldValue(data,key,fallback),req=required?"required":"",attr=`data-${prefix}-field="${key}"`;
+  if(type==="textarea")return `<label>${esc(label)}<textarea ${attr} ${req}>${esc(value)}</textarea></label>`;
+  if(type==="select")return `<label>${esc(label)}${required?"*":""}<select ${attr} ${req}>${options.map(o=>`<option value="${esc(o)}" ${value===o?"selected":""}>${esc(o||"Select")}</option>`).join("")}</select></label>`;
+  if(type==="multiselect"){const selected=new Set(Array.isArray(value)?value:[]);return `<label>${esc(label)}<select ${attr} multiple>${options.map(o=>`<option value="${esc(o)}" ${selected.has(o)?"selected":""}>${esc(o)}</option>`).join("")}</select></label>`}
+  return `<label>${esc(label)}${required?"*":""}<input ${attr} type="${type}" value="${esc(value)}" ${req}></label>`;
+}
+function emergencyContactSummary(player=currentPlayer){
+  const hids=idsFrom(householdMemberships.filter(m=>m.playerId===player?.id&&m.active!==false),"householdId");
+  const parents=householdMemberships.filter(m=>hids.includes(m.householdId)&&m.userId&&m.role==="parent"&&m.active!==false).map(m=>userById(m.userId)).filter(Boolean);
+  if(!parents.length)return `<div class="empty-state compact">No household parents linked yet.</div>`;
+  return parents.map(parent=>{const d=detailForUser(parent.id);return `<div class="association-member"><div><strong>${esc(recordName(parent))}</strong><small>${esc(d.email||parent.username||"No email")}</small><small>${esc([d.phone1,d.phone2].filter(Boolean).join(" / ")||"No phone")}</small></div></div>`}).join("");
+}
+function metricKey(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")}
+function metricRows(profile){
+  const metrics=profile.metrics||{};
+  return METRIC_GROUPS.map(([title,names])=>`<section class="metric-group"><h3>${esc(title)}</h3>${names.map(name=>{const key=metricKey(name),m=metrics[key]||{};return `<div class="metric-row"><strong>${esc(name)}</strong><label>Initial<input data-metric-field="${key}.initialValue" value="${esc(m.initialValue||"")}"></label><label>Initial Date<input type="date" data-metric-field="${key}.initialDate" value="${esc(m.initialDate||"")}"></label><label>Last<input data-metric-field="${key}.lastValue" value="${esc(m.lastValue||"")}"></label><label>Last Date<input type="date" data-metric-field="${key}.lastDate" value="${esc(m.lastDate||"")}"></label><label>Next Goal<input data-metric-field="${key}.goalValue" value="${esc(m.goalValue||"")}"></label><label>Goal Date<input type="date" data-metric-field="${key}.goalDate" value="${esc(m.goalDate||"")}"></label></div>`}).join("")}</section>`).join("");
+}
+function collectFieldData(attr){
+  const data={};
+  document.querySelectorAll(`[data-${attr}-field]`).forEach(el=>{
+    const key=el.dataset[`${attr.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())}Field`];
+    data[key]=el.multiple?[...el.selectedOptions].map(o=>o.value):el.value.trim();
+  });
+  return data;
+}
+function addMonths(date,months){const next=new Date(date);next.setMonth(next.getMonth()+months);return next}
+function nextEvaluationFrom(dateValue,frequency){
+  if(!dateValue||!frequency)return dateValue;
+  let date=new Date(`${dateValue}T00:00:00`),today=new Date(`${todayISO()}T00:00:00`);
+  if(Number.isNaN(date.getTime()))return dateValue;
+  const advance=()=>{if(frequency==="Weekly")date.setDate(date.getDate()+7);else if(frequency==="Biweekly")date.setDate(date.getDate()+14);else if(frequency==="Monthly")date=addMonths(date,1);else if(frequency==="Quarterly")date=addMonths(date,3);else if(frequency==="Semiannual")date=addMonths(date,6);else if(frequency==="Annual")date=addMonths(date,12);else date=today};
+  while(date<today)advance();
+  return date.toISOString().slice(0,10);
+}
+function collectMetricData(){
+  const metrics={};
+  document.querySelectorAll("[data-metric-field]").forEach(el=>{const [metric,field]=el.dataset.metricField.split(".");metrics[metric]={...(metrics[metric]||{}),[field]:el.value.trim()}});
+  return metrics;
+}
 function profilePanel(eyebrow,title,body,{open=false,classes=""}={}){
   return `<details class="panel profile-collapse ${classes}" ${open?"open":""}><summary class="section-heading profile-collapse-summary"><div><p class="eyebrow">${esc(eyebrow)}</p><h2>${esc(title)}</h2></div><span class="collapse-indicator" aria-hidden="true"></span></summary><div class="profile-collapse-body">${body}</div></details>`;
 }
-function profileInfoSection(){return profilePanel("Account","Personal Information",`<form id="profile-info-form" class="form-stack"><label>Name<input id="profile-edit-name" value="${esc(currentUser.name||"")}" required></label><label>Email<input id="profile-edit-email" type="email" value="${esc(currentUser.username||"")}" autocomplete="email"></label><label>New password<input id="profile-edit-password" type="password" minlength="8" autocomplete="new-password" placeholder="Leave blank to keep current password"></label><button class="primary-button">Save personal information</button></form>`,{open:true})}
+function profileInfoSection(){const detail=detailForUser(currentUser.id),nameParts=splitName(currentUser.name||"");const fields=PROFILE_FIELDS.map(f=>inputField("profile",f,detail,f[0]==="firstName"?nameParts.firstName:f[0]==="lastName"?nameParts.lastName:f[0]==="email"?currentUser.username:f[0]==="primaryLanguage"?"English":"")).join("");return profilePanel("Account","Personal Information",`<form id="profile-info-form" class="form-stack"><div class="form-grid">${fields}<label>Age<span class="readonly-field">${esc(ageFromDob(detail.dateOfBirth))||"Not available"}</span></label><label>New password<input id="profile-edit-password" type="password" minlength="8" autocomplete="new-password" placeholder="Leave blank to keep current password"></label></div><button class="primary-button">Save personal information</button></form>`,{open:true})}
+function playerProfileSections(){if(!currentPlayer||!canEditRecord("player",currentPlayer))return "";const profile=profileForPlayer(currentPlayer.id),athletic=profile.athletic||{};const playerFields=PLAYER_FIELDS.map(f=>inputField("player-profile",f,profile)).join("");const athleticFields=ATHLETIC_FIELDS.map(([key,label,type="text",options=[]])=>inputField("athletic",[key,label,type,false,options],athletic)).join("");return profilePanel("Player","Player Information",`<form id="player-profile-form" class="form-stack"><div class="form-grid">${playerFields}</div><section class="association-detail-section"><h3>Emergency Contacts</h3>${emergencyContactSummary(currentPlayer)}</section><button class="primary-button">Save player information</button></form>`)+profilePanel("Athletic","Athletic Information",`<form id="athletic-profile-form" class="form-stack"><div class="form-grid">${athleticFields}</div><button class="primary-button">Save athletic information</button></form>`)+profilePanel("Metrics","Performance Metrics",`<form id="performance-metrics-form" class="form-stack">${metricRows(profile)}<button class="primary-button">Save performance metrics</button></form>`)}
 function superUserSecuritySection(){return profilePanel("Security","Super User Password",`<form id="super-password-form" class="form-stack"><label>New password<input id="super-password" type="password" minlength="8" autocomplete="new-password" required></label><label>Confirm password<input id="super-password-confirm" type="password" minlength="8" autocomplete="new-password" required></label><button class="primary-button">Reset password</button></form>`)}
 function appSettingsSection(){const enabled=("Notification"in window)&&Notification.permission==="granted";return profilePanel("Device features","App Settings",`<div class="settings-row"><div><strong>Device notifications</strong><small>Best-effort alerts on this device.</small></div><button class="toggle-button" id="enable-notifications" type="button" aria-pressed="${enabled}"><span></span>${enabled?"Enabled":"Enable"}</button></div><button class="secondary-button wide" id="install-app" type="button">${installGuidance()}</button><button class="text-button wide" id="sign-out" type="button">Sign out</button>`,{classes:"app-settings-panel"})}
 function recordActions(record,type){const admin=isRecordAdmin(type,record.id),editable=canEditRecord(type,record),encoded=`data-record-type="${type}" data-record-id="${esc(record.id)}"`;if(admin)return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record ${encoded}>Edit</button><button class="icon-action" title="Invite" data-invite-record ${encoded}>Invite</button><button class="icon-action danger" title="Delete" data-delete-record ${encoded}>Delete</button></div>`;if(editable)return `<div class="row-actions"><button class="icon-action" title="Edit" data-edit-record ${encoded}>Edit</button><button class="icon-action" title="View" data-view-record ${encoded}>View</button></div>`;return `<div class="row-actions"><button class="icon-action" title="View" data-view-record ${encoded}>View</button></div>`}
@@ -663,12 +731,12 @@ function associationsSection(){
   const active=ASSOCIATION_TABS.some(t=>t.key===associationActiveTab)?associationActiveTab:"household";
   return profilePanel("Scoped access","Associations",`<div class="association-tabs">${ASSOCIATION_TABS.map(tab=>`<button class="association-tab ${tab.key===active?"active":""}" type="button" data-association-tab="${tab.key}">${tab.label}</button>`).join("")}</div>${ASSOCIATION_TABS.map(tab=>`<div class="association-pane ${tab.key===active?"active":""}" data-association-pane="${tab.key}">${associationList(tab)}</div>`).join("")}`,{classes:"associations-panel"});
 }
-function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>profilePanel("Global records",recordPlural(meta.type),recordTable(meta.type,adminRecordsForType(meta.type),true))).join("");document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${profilePanel("Super User","Admin",`<p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p>`)}${superUserSecuritySection()}${pendingRequestSection(true)}${associationsSection()}${sections}${appSettingsSection()}`}
+function renderSuperAdmin(){document.querySelector("#profile-actions").innerHTML=`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button>`;const sections=ADMIN_RECORD_TYPES.map(meta=>profilePanel("Global records",recordPlural(meta.type),recordTable(meta.type,adminRecordsForType(meta.type),true))).join("");document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${playerProfileSections()}${profilePanel("Super User","Admin",`<p class="panel-copy">Super Users manage global records and use masquerade for role testing. Training-plan controls remain tied to the masqueraded account.</p>`)}${superUserSecuritySection()}${pendingRequestSection(true)}${associationsSection()}${sections}${appSettingsSection()}`}
 function renderAdmin(){
   if(!currentUser)return;
   document.querySelector("#profile-actions").innerHTML=isSuperUser()?"":`${refreshButton()}<button class="primary-button" type="button" id="add-new-button">Add New</button><button class="secondary-button" type="button" id="link-record-button">Link</button>`;
   if(isSuperUser()){renderSuperAdmin();return}
-  document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${pendingRequestSection()}${associationsSection()}${appSettingsSection()}`;
+  document.querySelector("#profile-stack").innerHTML=`${profileInfoSection()}${playerProfileSections()}${pendingRequestSection()}${associationsSection()}${appSettingsSection()}`;
 }
 function scopedInviteRoles(type){
   if(type==="household")return ["Parent","Player"];
@@ -944,10 +1012,11 @@ async function refreshRecords(){
   if(context){
     ({users,players,teams,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations,accessRequestDetails}=context);
     accessRecords=context.userPlayerAccess||[];
+    [profileDetails,playerProfiles]=await Promise.all(["profileDetails","playerProfiles"].map(ClubhouseDB.all));
     normalizeLoadedRecords();
     return;
   }
-  [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations"].map(ClubhouseDB.all));
+  [users,players,teams,accessRecords,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations,profileDetails,playerProfiles]=await Promise.all(["users","players","teams","userPlayerAccess","events","alerts","decisions","organizations","households","organizationRoles","teamCoachRoles","householdMemberships","playerTeamMemberships","playerTags","accessRequests","recordAssociations","invitations","profileDetails","playerProfiles"].map(ClubhouseDB.all));
   accessRequestDetails=await ClubhouseDB.accessRequestAdminDetails();
   if(!masqueradeDataMode){
     const oldMemberships=await ClubhouseDB.all("teamMemberships"),oldTeamRoles=await ClubhouseDB.all("userTeamRoles");
@@ -1511,14 +1580,37 @@ document.addEventListener("submit",async e=>{
   }
   if(e.target.id==="profile-info-form"){
     e.preventDefault();
-    const name=document.querySelector("#profile-edit-name").value.trim(),email=document.querySelector("#profile-edit-email").value.trim(),password=document.querySelector("#profile-edit-password").value;
+    const detail={...detailForUser(currentUser.id),...collectFieldData("profile"),id:currentUser.id},name=[detail.firstName,detail.lastName].filter(Boolean).join(" ").trim()||currentUser.name,email=detail.email||currentUser.username,password=document.querySelector("#profile-edit-password").value;
     if(isMasquerading()&&(password||(email&&email!==currentUser.username))){alert("Email and password changes are disabled while masquerading.");return}
     if(!isMasquerading()){
       const authChanges={data:{name}};if(email&&email!==currentUser.username)authChanges.email=email;if(password)authChanges.password=password;
       const {error}=await ClubhouseDB.updateAuth(authChanges)||{};
       if(error){alert(error.message);return}
     }
-    currentUser.name=name;currentUser.username=email||currentUser.username;await ClubhouseDB.put("users",currentUser);await refreshRecords();actualUser=users.find(u=>u.id===actualUser?.id)||actualUser;currentUser=users.find(u=>u.id===currentUser?.id)||currentUser;renderAll();showToast("Profile updated");
+    currentUser.name=name;currentUser.username=email||currentUser.username;await ClubhouseDB.put("users",currentUser);await ClubhouseDB.put("profileDetails",detail);await refreshRecords();actualUser=users.find(u=>u.id===actualUser?.id)||actualUser;currentUser=users.find(u=>u.id===currentUser?.id)||currentUser;renderAll();showToast("Profile updated");
+    return;
+  }
+  if(e.target.id==="player-profile-form"){
+    e.preventDefault();
+    if(!currentPlayer){alert("Select a player first.");return}
+    const profile={...profileForPlayer(currentPlayer.id),...collectFieldData("player-profile"),id:currentPlayer.id};
+    await ClubhouseDB.put("playerProfiles",profile);await refreshRecords();renderAll();showToast("Player profile updated");
+    return;
+  }
+  if(e.target.id==="athletic-profile-form"){
+    e.preventDefault();
+    if(!currentPlayer){alert("Select a player first.");return}
+    const profile=profileForPlayer(currentPlayer.id),athletic=collectFieldData("athletic");
+    athletic.nextEvaluationDate=nextEvaluationFrom(athletic.nextEvaluationDate,athletic.evaluationFrequency);
+    await ClubhouseDB.put("playerProfiles",{...profile,id:currentPlayer.id,athletic});await refreshRecords();renderAll();showToast("Athletic profile updated");
+    return;
+  }
+  if(e.target.id==="performance-metrics-form"){
+    e.preventDefault();
+    if(!currentPlayer){alert("Select a player first.");return}
+    const profile=profileForPlayer(currentPlayer.id);
+    await ClubhouseDB.put("playerProfiles",{...profile,id:currentPlayer.id,metrics:collectMetricData()});await refreshRecords();renderAll();showToast("Performance metrics updated");
+    return;
   }
   if(e.target.id==="super-password-form"){
     e.preventDefault();
