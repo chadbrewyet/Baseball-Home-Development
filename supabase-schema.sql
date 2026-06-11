@@ -126,6 +126,37 @@ alter table public.players add column if not exists created_by text;
 alter table public.players add column if not exists created_at timestamptz not null default now();
 alter table public.players add column if not exists updated_at timestamptz not null default now();
 
+create table if not exists public.profile_details (
+  profile_id text primary key references public.profiles(id) on delete cascade,
+  data jsonb not null default '{}'::jsonb,
+  photo_data text,
+  photo_mime text,
+  photo_size integer,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.profile_details add column if not exists data jsonb not null default '{}'::jsonb;
+alter table public.profile_details add column if not exists photo_data text;
+alter table public.profile_details add column if not exists photo_mime text;
+alter table public.profile_details add column if not exists photo_size integer;
+alter table public.profile_details add column if not exists created_at timestamptz not null default now();
+alter table public.profile_details add column if not exists updated_at timestamptz not null default now();
+
+create table if not exists public.player_profiles (
+  player_id text primary key references public.players(id) on delete cascade,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.player_profiles add column if not exists data jsonb not null default '{}'::jsonb;
+alter table public.player_profiles add column if not exists created_at timestamptz not null default now();
+alter table public.player_profiles add column if not exists updated_at timestamptz not null default now();
+
+grant select, insert, update, delete on public.profile_details to authenticated;
+grant select, insert, update, delete on public.player_profiles to authenticated;
+
 create table if not exists public.user_player_access (
   id text primary key,
   user_id text not null references public.profiles(id) on delete cascade,
@@ -407,6 +438,8 @@ create index if not exists access_requests_record_idx on public.access_requests 
 create index if not exists access_requests_user_status_idx on public.access_requests (user_id, status);
 create index if not exists invitations_email_idx on public.invitations (lower(email), status);
 create index if not exists player_training_state_player_idx on public.player_training_state (player_id);
+create index if not exists profile_details_profile_idx on public.profile_details (profile_id);
+create index if not exists player_profiles_player_idx on public.player_profiles (player_id);
 create unique index if not exists profiles_auth_user_id_unique on public.profiles (auth_user_id) where auth_user_id is not null;
 create unique index if not exists user_player_access_user_player_unique on public.user_player_access (user_id, player_id);
 create unique index if not exists organization_roles_user_org_unique on public.organization_roles (user_id, organization_id);
@@ -422,7 +455,8 @@ begin
     'clubhouse_records','profiles','organizations','teams','households','players',
     'user_player_access','organization_roles','team_coach_roles','household_memberships',
     'player_team_memberships','record_associations','access_requests','invitations',
-    'player_training_state','calendar_events','alerts','admin_decisions','player_tags'
+    'player_training_state','calendar_events','alerts','admin_decisions','player_tags',
+    'profile_details','player_profiles'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "%s authenticated read" on public.%I', t, t);
@@ -448,7 +482,8 @@ begin
     'clubhouse_records','profiles','organizations','teams','households','players',
     'user_player_access','organization_roles','team_coach_roles','household_memberships',
     'player_team_memberships','record_associations','access_requests','invitations',
-    'player_training_state','calendar_events','alerts','admin_decisions','player_tags'
+    'player_training_state','calendar_events','alerts','admin_decisions','player_tags',
+    'profile_details','player_profiles'
   ] loop
     execute format('drop trigger if exists set_%s_updated_at on public.%I', t, t);
     execute format('create trigger set_%s_updated_at before update on public.%I for each row execute function public.set_updated_at()', t, t);
@@ -963,6 +998,8 @@ begin
       'alerts', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.alerts) x), '[]'::jsonb),
       'decisions', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.admin_decisions) x), '[]'::jsonb),
       'playerTags', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.player_tags) x), '[]'::jsonb),
+      'profileDetails', coalesce((select jsonb_agg(to_jsonb(x) order by x.profile_id) from (select * from public.profile_details) x), '[]'::jsonb),
+      'playerProfiles', coalesce((select jsonb_agg(to_jsonb(x) order by x.player_id) from (select * from public.player_profiles) x), '[]'::jsonb),
       'accessRequestDetails', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.access_request_admin_details() x), '[]'::jsonb)
     );
   end if;
@@ -1019,6 +1056,8 @@ begin
     'alerts', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.alerts where player_id = any(v_player_ids) or created_by = v_user_id) x), '[]'::jsonb),
     'decisions', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.admin_decisions where player_id = any(v_player_ids) or created_by = v_user_id) x), '[]'::jsonb),
     'playerTags', coalesce((select jsonb_agg(to_jsonb(x) order by x.id) from (select * from public.player_tags where player_id = any(v_player_ids)) x), '[]'::jsonb),
+    'profileDetails', coalesce((select jsonb_agg(to_jsonb(x) order by x.profile_id) from (select * from public.profile_details where profile_id = any(v_profile_ids)) x), '[]'::jsonb),
+    'playerProfiles', coalesce((select jsonb_agg(to_jsonb(x) order by x.player_id) from (select * from public.player_profiles where player_id = any(v_player_ids)) x), '[]'::jsonb),
     'accessRequestDetails', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.access_request_admin_details() x where x.id = any(v_request_ids)), '[]'::jsonb)
   );
 end;

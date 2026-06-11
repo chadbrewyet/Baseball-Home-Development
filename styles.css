@@ -204,6 +204,10 @@ textarea { resize: vertical; }
 .profile-collapse[open] .collapse-indicator::before { content: "-"; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 14px; align-items: start; }
 .readonly-field { display: block; min-height: 41px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9fb; padding: 11px 12px; color: var(--muted); margin-top: 7px; font-weight: 700; }
+.profile-picture-field { min-height: 170px; }
+.profile-picture-preview { display: grid; place-items: center; width: 112px; height: 112px; border: 1px solid var(--line); border-radius: 7px; background: #f7f9fb; color: var(--muted); margin: 7px 0; overflow: hidden; font-size: 11px; font-weight: 700; }
+.profile-picture-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile-picture-field small { color: var(--muted); font-size: 10px; font-weight: 700; }
 .metric-group { display: grid; gap: 8px; margin-bottom: 18px; }
 .metric-group h3 { margin: 0; font: 600 17px Oswald; text-transform: uppercase; }
 .metric-row { display: grid; grid-template-columns: minmax(145px,1.1fr) repeat(6,minmax(110px,1fr)); gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: #f7f9fb; }

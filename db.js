@@ -25,8 +25,14 @@ const ClubhouseDB = (() => {
   const localPut=(name,value)=>new Promise((res,rej)=>{const r=store(name,"readwrite").put(value);r.onsuccess=()=>res(value);r.onerror=()=>rej(r.error)});
   const localRemove=(name,itemId)=>new Promise((res,rej)=>{const r=store(name,"readwrite").delete(itemId);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)});
   const authed = async () => Boolean((await sb?.auth.getSession())?.data?.session);
-  const REMOTE_TABLES={users:"profiles",organizations:"organizations",teams:"teams",households:"households",players:"players",userPlayerAccess:"user_player_access",organizationRoles:"organization_roles",teamCoachRoles:"team_coach_roles",householdMemberships:"household_memberships",playerTeamMemberships:"player_team_memberships",recordAssociations:"record_associations",accessRequests:"access_requests",invitations:"invitations",playerData:"player_training_state",events:"calendar_events",alerts:"alerts",decisions:"admin_decisions",playerTags:"player_tags"};
-  const REMOTE_KEYS={playerData:"player_id"};
+  const REMOTE_TABLES={users:"profiles",organizations:"organizations",teams:"teams",households:"households",players:"players",userPlayerAccess:"user_player_access",organizationRoles:"organization_roles",teamCoachRoles:"team_coach_roles",householdMemberships:"household_memberships",playerTeamMemberships:"player_team_memberships",recordAssociations:"record_associations",accessRequests:"access_requests",invitations:"invitations",playerData:"player_training_state",events:"calendar_events",alerts:"alerts",decisions:"admin_decisions",playerTags:"player_tags",profileDetails:"profile_details",playerProfiles:"player_profiles"};
+  const REMOTE_KEYS={playerData:"player_id",profileDetails:"profile_id",playerProfiles:"player_id"};
+  const missingRemoteTable=error=>["42P01","PGRST205"].includes(error?.code)||/does not exist|Could not find the table/i.test(error?.message||"");
+  const imageDataUrl=(mime,data)=>data?`data:${mime||"image/webp"};base64,${data}`:"";
+  const imagePayload=(dataUrl="")=>{
+    const match=String(dataUrl).match(/^data:([^;]+);base64,(.+)$/);
+    return match?{mime:match[1],data:match[2],size:Math.ceil((match[2].length*3)/4)}:{mime:"",data:"",size:0};
+  };
   const fromRemote=(name,row)=>{
     if(!row)return row;
     if(name==="users"){
@@ -50,6 +56,8 @@ const ClubhouseDB = (() => {
     if(name==="alerts")return {...(row.data||{}),id:row.id,playerId:row.player_id,type:row.type,title:row.title,message:row.message,status:row.status,read:row.read,createdBy:row.created_by,created:row.created_at};
     if(name==="decisions")return {...(row.data||{}),id:row.id,playerId:row.player_id,eventId:row.event_id,alertId:row.alert_id,date:row.decision_date,action:row.action,userId:row.created_by,created:row.created_at};
     if(name==="playerTags")return {id:row.id,playerId:row.player_id,tags:row.tags||[],active:row.active,createdBy:row.created_by,created:row.created_at};
+    if(name==="profileDetails")return {id:row.profile_id,...(row.data||{}),profilePictureData:imageDataUrl(row.photo_mime,row.photo_data),profilePictureMime:row.photo_mime||"",profilePictureSize:row.photo_size||0,created:row.created_at};
+    if(name==="playerProfiles")return {id:row.player_id,...(row.data||{}),created:row.created_at};
     return row;
   };
   const toRemote=(name,value)=>{
@@ -77,6 +85,8 @@ const ClubhouseDB = (() => {
     if(name==="alerts")return {id:v.id,player_id:v.playerId||null,type:v.type,title:v.title||"Alert",message:v.message,status:v.status||"pending",read:Boolean(v.read),data:v,created_by:v.createdBy,updated_at:new Date().toISOString()};
     if(name==="decisions")return {id:v.id,player_id:v.playerId||null,event_id:v.eventId||null,alert_id:v.alertId||null,decision_date:v.date||null,action:v.action||"unknown",data:v,created_by:v.userId||v.createdBy};
     if(name==="playerTags")return {id:v.id,player_id:v.playerId,tags:v.tags||[],active:v.active!==false,created_by:v.createdBy,updated_at:new Date().toISOString()};
+    if(name==="profileDetails"){const data={...v},photo=imagePayload(v.profilePictureData);delete data.id;delete data.profilePictureData;delete data.profilePictureMime;delete data.profilePictureSize;delete data.created;return {profile_id:v.id,data,photo_data:photo.data||null,photo_mime:photo.mime||v.profilePictureMime||null,photo_size:photo.size||v.profilePictureSize||null,updated_at:new Date().toISOString()}}
+    if(name==="playerProfiles"){const data={...v};delete data.id;delete data.created;return {player_id:v.id,data,updated_at:new Date().toISOString()}}
     return v;
   };
 
@@ -84,8 +94,8 @@ const ClubhouseDB = (() => {
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
         const {data,error}=await sb.from(REMOTE_TABLES[name]).select("*").order(REMOTE_KEYS[name]||"id");
-        if(error)throw error;
-        return data.map(row=>fromRemote(name,row));
+        if(error&&!missingRemoteTable(error))throw error;
+        if(!error)return data.map(row=>fromRemote(name,row));
       }
       const {data,error}=await sb.from("clubhouse_records").select("data").eq("store",name).order("id");
       if(error)throw error;
@@ -97,8 +107,8 @@ const ClubhouseDB = (() => {
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
         const {data,error}=await sb.from(REMOTE_TABLES[name]).select("*").eq(REMOTE_KEYS[name]||"id",itemId).maybeSingle();
-        if(error)throw error;
-        return fromRemote(name,data);
+        if(error&&!missingRemoteTable(error))throw error;
+        if(!error)return fromRemote(name,data);
       }
       const {data,error}=await sb.from("clubhouse_records").select("data").eq("store",name).eq("id",itemId).maybeSingle();
       if(error)throw error;
@@ -112,8 +122,8 @@ const ClubhouseDB = (() => {
       if(REMOTE_TABLES[name]){
         const row=toRemote(name,value);
         const {error}=await sb.from(REMOTE_TABLES[name]).upsert(row);
-        if(error)throw error;
-        return value;
+        if(error&&!missingRemoteTable(error))throw error;
+        if(!error)return value;
       }
       const {error}=await sb.from("clubhouse_records").upsert({store:name,id:value.id,data:value,updated_at:new Date().toISOString()});
       if(error)throw error;
@@ -205,6 +215,8 @@ const ClubhouseDB = (() => {
       alerts:map("alerts",ctx.alerts),
       decisions:map("decisions",ctx.decisions),
       playerTags:map("playerTags",ctx.playerTags),
+      profileDetails:Object.prototype.hasOwnProperty.call(ctx,"profileDetails")?map("profileDetails",ctx.profileDetails):undefined,
+      playerProfiles:Object.prototype.hasOwnProperty.call(ctx,"playerProfiles")?map("playerProfiles",ctx.playerProfiles):undefined,
       accessRequestDetails:ctx.accessRequestDetails||[]
     };
   }
@@ -212,8 +224,8 @@ const ClubhouseDB = (() => {
     if(hasRemote()&&await authed()){
       if(REMOTE_TABLES[name]){
         const {error}=await sb.from(REMOTE_TABLES[name]).delete().eq(REMOTE_KEYS[name]||"id",itemId);
-        if(error)throw error;
-        return;
+        if(error&&!missingRemoteTable(error))throw error;
+        if(!error)return;
       }
       const {error}=await sb.from("clubhouse_records").delete().eq("store",name).eq("id",itemId);
       if(error)throw error;

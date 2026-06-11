@@ -471,7 +471,7 @@ const GENDER_OPTIONS=["","Female","Male","Non-binary","Prefer not to say"];
 const STATUS_OPTIONS=["Fully Active","Inactive","Injured","Cleared for Activity"];
 const EVALUATION_OPTIONS=["","Weekly","Biweekly","Monthly","Quarterly","Semiannual","Annual"];
 const PROFILE_FIELDS=[
-  ["firstName","First Name","text",true],["lastName","Last Name","text",true],["email","Email","email",true],["phone1","Phone 1"],["phone2","Phone 2"],["profilePicture","Profile Picture"],["dateOfBirth","Date of Birth","date"],["primaryLanguage","Primary Language","select",false,LANGUAGE_OPTIONS],["city","City"],["state","State"],["facebook","Facebook Address"],["xAddress","X Address"],["instagram","Instagram Address"],["tikTok","Tik Tok Address"],["youtube","YouTube Channel"]
+  ["firstName","First Name","text",true],["lastName","Last Name","text",true],["email","Email","email",true],["phone1","Phone 1"],["phone2","Phone 2"],["profilePictureData","Profile Picture","image"],["dateOfBirth","Date of Birth","date"],["primaryLanguage","Primary Language","select",false,LANGUAGE_OPTIONS],["city","City"],["state","State"],["facebook","Facebook Address"],["xAddress","X Address"],["instagram","Instagram Address"],["tikTok","Tik Tok Address"],["youtube","YouTube Channel"]
 ];
 const PLAYER_FIELDS=[
   ["nickname","Nickname"],["gender","Gender","select",false,GENDER_OPTIONS],["school","School"],["graduationYear","Graduation Year (Class of)","number"],["primaryPosition","Primary Position","select",false,POSITION_OPTIONS],["otherPositions","Other Positions","multiselect",false,POSITION_OPTIONS],["bats","Bats","select",false,HAND_OPTIONS],["throws","Throws","select",false,HAND_OPTIONS],["height","Height"],["weight","Weight"],["playerParentNotes","Player/Parent Notes","textarea"],["gameChanger","Game Changer Link"],["hudl","Hudl Address"],["perfectGame","Perfect Game Profile"],["pbr","Prep Baseball / PBR"],["ncsa","NCSA Profile"],["sportsRecruits","SportsRecruits Profile"],["fieldLevel","FieldLevel Profile"],["baseballFactory","Baseball Factory Profile"],["trackman","Trackman Profile"],["rapsodo","Rapsodo Profile"],["hitTrax","HitTrax Profile"],["blastMotion","Blast Motion Profile"],["pocketRadar","Pocket Radar Profile"],["synergy","Synergy Profile"]
@@ -493,6 +493,10 @@ function ageFromDob(dob){if(!dob)return "";const birth=new Date(`${dob}T00:00:00
 function fieldValue(data,key,fallback=""){return data?.[key]??fallback}
 function inputField(prefix,[key,label,type="text",required=false,options=[]],data,fallback=""){
   const value=fieldValue(data,key,fallback),req=required?"required":"",attr=`data-${prefix}-field="${key}"`;
+  if(type==="image"){
+    const preview=value?`<img src="${esc(value)}" alt="">`:`<span>No picture</span>`;
+    return `<label class="profile-picture-field">${esc(label)}<span class="profile-picture-preview">${preview}</span><input type="file" accept="image/*" data-profile-picture-input="${esc(key)}"><small>Images are resized before saving.</small></label>`;
+  }
   if(type==="textarea")return `<label>${esc(label)}<textarea ${attr} ${req}>${esc(value)}</textarea></label>`;
   if(type==="select")return `<label>${esc(label)}${required?"*":""}<select ${attr} ${req}>${options.map(o=>`<option value="${esc(o)}" ${value===o?"selected":""}>${esc(o||"Select")}</option>`).join("")}</select></label>`;
   if(type==="multiselect"){const selected=new Set(Array.isArray(value)?value:[]);return `<label>${esc(label)}<select ${attr} multiple>${options.map(o=>`<option value="${esc(o)}" ${selected.has(o)?"selected":""}>${esc(o)}</option>`).join("")}</select></label>`}
@@ -516,6 +520,32 @@ function collectFieldData(attr){
     data[key]=el.multiple?[...el.selectedOptions].map(o=>o.value):el.value.trim();
   });
   return data;
+}
+function imageSizeFromDataUrl(dataUrl=""){const base64=String(dataUrl).split(",")[1]||"";return Math.ceil((base64.length*3)/4)}
+function loadImageForCompression(file){
+  if("createImageBitmap" in window)return createImageBitmap(file);
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file),img=new Image();
+    img.onload=()=>{URL.revokeObjectURL(url);resolve(img)};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Unable to read image."))};
+    img.src=url;
+  });
+}
+async function compressProfilePicture(file){
+  if(!file)return null;
+  if(!file.type.startsWith("image/"))throw new Error("Please choose an image file.");
+  const source=await loadImageForCompression(file),maxSide=512,width=source.width||source.naturalWidth,height=source.height||source.naturalHeight,scale=Math.min(1,maxSide/Math.max(width,height)),canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
+  canvas.getContext("2d").drawImage(source,0,0,canvas.width,canvas.height);
+  if(typeof source.close==="function")source.close();
+  let dataUrl=canvas.toDataURL("image/webp",0.72);
+  if(!dataUrl.startsWith("data:image/webp"))dataUrl=canvas.toDataURL("image/jpeg",0.76);
+  return {profilePictureData:dataUrl,profilePictureMime:dataUrl.slice(5,dataUrl.indexOf(";")),profilePictureSize:imageSizeFromDataUrl(dataUrl)};
+}
+async function applyProfilePicture(detail){
+  const file=document.querySelector("[data-profile-picture-input]")?.files?.[0];
+  if(!file)return detail;
+  return {...detail,...await compressProfilePicture(file)};
 }
 function addMonths(date,months){const next=new Date(date);next.setMonth(next.getMonth()+months);return next}
 function nextEvaluationFrom(dateValue,frequency){
@@ -1010,9 +1040,9 @@ async function refreshRecords(){
   }
   const context=masqueradeDataMode?null:await ClubhouseDB.appContext?.();
   if(context){
-    ({users,players,teams,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations,accessRequestDetails}=context);
+    ({users,players,teams,events,alerts,decisions,organizations,households,organizationRoles,teamCoachRoles,householdMemberships,playerTeamMemberships,playerTags,accessRequests,recordAssociations,invitations,profileDetails,playerProfiles,accessRequestDetails}=context);
     accessRecords=context.userPlayerAccess||[];
-    [profileDetails,playerProfiles]=await Promise.all(["profileDetails","playerProfiles"].map(ClubhouseDB.all));
+    if(!profileDetails||!playerProfiles)[profileDetails,playerProfiles]=await Promise.all(["profileDetails","playerProfiles"].map(ClubhouseDB.all));
     normalizeLoadedRecords();
     return;
   }
@@ -1580,7 +1610,9 @@ document.addEventListener("submit",async e=>{
   }
   if(e.target.id==="profile-info-form"){
     e.preventDefault();
-    const detail={...detailForUser(currentUser.id),...collectFieldData("profile"),id:currentUser.id},name=[detail.firstName,detail.lastName].filter(Boolean).join(" ").trim()||currentUser.name,email=detail.email||currentUser.username,password=document.querySelector("#profile-edit-password").value;
+    let detail={...detailForUser(currentUser.id),...collectFieldData("profile"),id:currentUser.id};
+    try{detail=await applyProfilePicture(detail)}catch(error){alert(error.message||"Unable to process profile picture.");return}
+    const name=[detail.firstName,detail.lastName].filter(Boolean).join(" ").trim()||currentUser.name,email=detail.email||currentUser.username,password=document.querySelector("#profile-edit-password").value;
     if(isMasquerading()&&(password||(email&&email!==currentUser.username))){alert("Email and password changes are disabled while masquerading.");return}
     if(!isMasquerading()){
       const authChanges={data:{name}};if(email&&email!==currentUser.username)authChanges.email=email;if(password)authChanges.password=password;
